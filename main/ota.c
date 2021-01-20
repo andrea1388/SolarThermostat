@@ -5,6 +5,7 @@
 #include "esp_system.h"
 #include "esp_event.h"
 
+#define CONFIG_EXAMPLE_FIRMWARE_UPGRADE_URL "192.168.1.101"
 static const char *TAG = "simple_ota_example";
 extern const uint8_t server_cert_pem_start[] asm("_binary_ca_cert_pem_start");
 extern const uint8_t server_cert_pem_end[] asm("_binary_ca_cert_pem_end");

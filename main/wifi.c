@@ -1,12 +1,15 @@
 #include "esp_wifi.h"
 #include "esp_event.h"
+#include "esp_log.h"
+#include "freertos/event_groups.h"
 
-#define EXAMPLE_ESP_WIFI_SSID      CONFIG_ESP_WIFI_SSID
-#define EXAMPLE_ESP_WIFI_PASS      CONFIG_ESP_WIFI_PASSWORD
+#define EXAMPLE_ESP_WIFI_SSID      "Mordor"
+#define EXAMPLE_ESP_WIFI_PASS      "gandalfilgrigio"
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT      BIT1
 
 static const char *TAG = "wifi";
+extern EventGroupHandle_t s_wifi_event_group;
 /* FreeRTOS event group to signal when we are connected*/
 
 

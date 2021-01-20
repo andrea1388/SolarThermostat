@@ -26,6 +26,7 @@ extern void initGPIO();
 extern void loadParameters();
 extern void wifi_init_sta();
 extern void simple_ota_example_task(void *pvParameter);
+extern void mqtt_app_start(void);
 
 static EventGroupHandle_t s_wifi_event_group;
 
@@ -35,6 +36,7 @@ void app_main(void)
     initGPIO();
     wifi_init_sta();
     xTaskCreate(&simple_ota_example_task, "ota_example_task", 8192, NULL, 5, NULL);
+    mqtt_app_start();
     
 /*     ds18x20_addr_t panel_sens[1];
     ds18x20_addr_t tank_sens[1];

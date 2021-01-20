@@ -1,3 +1,7 @@
+#include "esp_system.h"
+#include "esp_flash.h"
+#include "nvs_flash.h"
+
 void loadParameters() {
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -12,11 +16,11 @@ void loadParameters() {
     switch(r)
     {
         case ESP_OK:
-            nvs_get_u8(my_handle, "camera", &camera);
+            /* nvs_get_u8(my_handle, "camera", &camera);
             nvs_get_u8(my_handle, "struttura", &struttura);
             nvs_get_u8(my_handle, "modalita", &modalita);
             nvs_get_u8(my_handle, "secondiAperturaSerratura", &secondiAperturaSerratura);
-            nvs_get_u8(my_handle, "secondiChiusuraSerratura", &secondiChiusuraSerratura);
+            nvs_get_u8(my_handle, "secondiChiusuraSerratura", &secondiChiusuraSerratura); */
             break;
         
     }

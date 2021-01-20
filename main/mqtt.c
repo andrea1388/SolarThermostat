@@ -1,12 +1,13 @@
 
 #include "mqtt_client.h"
+#include "esp_log.h"
 #include "esp_tls.h"
 
 static const char *TAG = "MQTTS_EXAMPLE";
 
 extern const uint8_t mqtt_eclipse_org_pem_start[]   asm("_binary_mqtt_eclipse_org_pem_start");
 extern const uint8_t mqtt_eclipse_org_pem_end[]   asm("_binary_mqtt_eclipse_org_pem_end");
-
+#define CONFIG_BROKER_URI "ha.caveve.it"
 
 static esp_err_t mqtt_event_handler_cb(esp_mqtt_event_handle_t event)
 {
@@ -46,7 +47,7 @@ static esp_err_t mqtt_event_handler_cb(esp_mqtt_event_handle_t event)
             printf("DATA=%.*s\r\n", event->data_len, event->data);
             if (strncmp(event->data, "send binary please", event->data_len) == 0) {
                 ESP_LOGI(TAG, "Sending the binary");
-                send_binary(client);
+                //send_binary(client);
             }
             break;
         case MQTT_EVENT_ERROR:
@@ -72,7 +73,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
     mqtt_event_handler_cb(event_data);
 }
 
-static void mqtt_app_start(void)
+void mqtt_app_start(void)
 {
     const esp_mqtt_client_config_t mqtt_cfg = {
         .uri = CONFIG_BROKER_URI,
