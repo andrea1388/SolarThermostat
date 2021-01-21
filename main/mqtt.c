@@ -4,9 +4,9 @@
 #include "esp_tls.h"
 
 static const char *TAG = "MQTTS_EXAMPLE";
-
-extern const uint8_t mqtt_eclipse_org_pem_start[]   asm("_binary_mqtt_eclipse_org_pem_start");
-extern const uint8_t mqtt_eclipse_org_pem_end[]   asm("_binary_mqtt_eclipse_org_pem_end");
+const uint8_t ca_crt_start[] asm("_binary_ca_crt_start");
+const uint8_t client_crt_start[] asm("_binary_client_crt_start");
+const uint8_t client_key_start[] asm("_binary_client_key_start");
 #define CONFIG_BROKER_URI "ha.caveve.it"
 
 static esp_err_t mqtt_event_handler_cb(esp_mqtt_event_handle_t event)
@@ -77,7 +77,10 @@ void mqtt_app_start(void)
 {
     const esp_mqtt_client_config_t mqtt_cfg = {
         .uri = CONFIG_BROKER_URI,
-        .cert_pem = (const char *)mqtt_eclipse_org_pem_start,
+        .cert_pem = (const char *)ca_crt_start,
+        .client_key_pem = (const char *)client_key_start,
+        .client_cert_pem = (const char *)client_cert_start,
+        port = 8883
     };
 
     ESP_LOGI(TAG, "[APP] Free memory: %d bytes", esp_get_free_heap_size());

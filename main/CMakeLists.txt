@@ -5,4 +5,6 @@ idf_component_register(SRCS
 "mqtt.c" 
 "ota.c" 
 "wifi.c"
-INCLUDE_DIRS "")
+INCLUDE_DIRS ""
+EMBED_TXTFILES ${project_dir}/certs/ca.crt
+)

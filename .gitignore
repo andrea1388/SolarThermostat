@@ -1,2 +1,7 @@
 .vscode/
 build/
+certs/*.key
+certs/*.crt 
+certs/.DS_Store
+.DS_Store
+sdkconfig.old

@@ -6,9 +6,8 @@
 #include "esp_event.h"
 
 #define CONFIG_EXAMPLE_FIRMWARE_UPGRADE_URL "192.168.1.101"
-static const char *TAG = "simple_ota_example";
-extern const uint8_t server_cert_pem_start[] asm("_binary_ca_cert_pem_start");
-extern const uint8_t server_cert_pem_end[] asm("_binary_ca_cert_pem_end");
+static const char *TAG = "ota";
+const uint8_t ca_crt_start[] asm("_binary_ca_crt_start");
 
 esp_err_t _http_event_handler(esp_http_client_event_t *evt)
 {
@@ -44,8 +43,9 @@ void simple_ota_example_task(void *pvParameter)
 
     esp_http_client_config_t config = {
         .url = CONFIG_EXAMPLE_FIRMWARE_UPGRADE_URL,
-        .cert_pem = (char *)server_cert_pem_start,
+        .cert_pem = (char *)ca_crt_start,
         .event_handler = _http_event_handler,
+        port = 8070
     };
 
     config.skip_cert_common_name_check = true;
