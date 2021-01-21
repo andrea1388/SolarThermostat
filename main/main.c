@@ -28,7 +28,7 @@ extern void wifi_init_sta();
 extern void simple_ota_example_task(void *pvParameter);
 extern void mqtt_app_start(void);
 
-static EventGroupHandle_t s_wifi_event_group;
+EventGroupHandle_t s_wifi_event_group;
 
 void app_main(void)
 {

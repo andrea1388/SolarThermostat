@@ -2,7 +2,7 @@
 
 #include "driver/gpio.h"
 
-inline void initGPIO() 
+void initGPIO() 
 {
     gpio_pad_select_gpio(18);
     /* Set the GPIO as a push/pull output */
