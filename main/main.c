@@ -14,7 +14,9 @@
 #include "esp_spi_flash.h"
 #include "freertos/event_groups.h"
 #include "esp_timer.h"
-
+// https://github.com/UncleRus/esp-idf-lib
+// https://esp-idf-lib.readthedocs.io/en/latest/groups/ds18x20.html
+#include <ds18x20.h>
 
 
 #define GPIO_SENS_PANEL 1
@@ -27,16 +29,54 @@ extern void wifi_init_sta();
 extern void simple_ota_example_task(void *pvParameter);
 extern void mqtt_app_start(void);
 extern void pumpOnOff(bool on);
+extern void Publish(char *data,char*);
+extern void ReadTemperatures();
 
 EventGroupHandle_t s_wifi_event_group;
 float Tp,Tt; // store the last temp read
 int64_t now; // milliseconds from startup
-int32_t Tread; // interval in milliseconds between temperature readings
-int32_t Tsendtemps; // interval in milliseconds between temperature transmissions to mqtt broker
-int32_t Ton; // On time of the pump (usually is the time required to empty the panel) 
-int32_t Toff; // Off time
+uint32_t Tread; // interval in milliseconds between temperature readings
+uint32_t Tsendtemps; // interval in milliseconds between temperature transmissions to mqtt broker
+uint32_t Ton; // On time of the pump (usually is the time required to empty the panel) 
+uint32_t Toff; // Off time
 float deltaT; // delta T %, if one of the tho tenps red exceeds this delta then temp are transmitted to mqtt
+float TempMargin=2.0;
+char MqttTpTopic[]="SolarThermostat/Tp";
+char MqttTtTopic[]="SolarThermostat/Tp";
+char MqttControlTopic[]="SolarThermostat/control";
 
+
+void ProcessThermostat() {
+    static int64_t tchange=0;
+    static bool needPumpprec=false;
+    static uint8_t state=0;
+    bool needPump=(Tp > Tp + TempMargin);
+    bool condA = ((needPump==true) && (needPumpprec==false) && (state==0));
+    bool condB = ((state==0) && (needPump==true) && ((now - tchange) > Toff));
+    bool condC = ((state==1) && ((now - tchange) > Ton));
+    
+    if( condA || condB ) {
+        state=1;
+        pumpOnOff(true);
+        tchange=now;
+    }
+    if( condC ) {
+        state=0;
+        pumpOnOff(false);
+        tchange=now;
+    }
+    needPumpprec=needPump;
+
+}
+
+void ReadTemperatures() {
+    ds18x20_measure(GPIO_SENS_PANEL, ds18x20_ANY, false);
+    ds18x20_measure(GPIO_SENS_TANK, ds18x20_ANY, false);
+    vTaskDelay(1);
+    ds18x20_read_temperature(GPIO_SENS_PANEL, ds18x20_ANY, &Tp);
+    ds18x20_read_temperature(GPIO_SENS_TANK, ds18x20_ANY, &Tt);
+
+}
 
 void app_main(void)
 {
@@ -45,7 +85,6 @@ void app_main(void)
     Ton= 40*1000;
     Toff = 4*60*1000;
     deltaT = 0.1; // 10%
-
     loadParameters();
     initGPIO();
     wifi_init_sta();
@@ -67,13 +106,13 @@ void app_main(void)
         periodically (Tsendtemps) send Tp and Tt to MQTT broker, but only if they differ more than a certain amount (deltaT)
         read characters from stdin and respond to commands issued
     */
-    int64_t tlastread;  // time of the last temperatures read
-    int64_t tlasttempsend;  // time of the last temperatures send
-    float Tplast; // previous reading of Tp
-    float Ttlast; // previous reading of Tt
+    int64_t tlastread=0;  // time of the last temperatures read
+    int64_t tlastsenttemp=0;  // time of the last temperatures send
+    float Tplast=0; // previous reading of Tp
+    float Ttlast=0; // previous reading of Tt
     uint8_t cmdlen=0;
     #define MAXCMDLEN 100
-    char[MAXCMDLEN] command;
+    char cmd[MAXCMDLEN];
 
     while(true) {
         vTaskDelay(1);
@@ -81,11 +120,12 @@ void app_main(void)
         int c = fgetc(stdin);
         if(c!= EOF) 
         {
-            if(c='\n') {
-                command[cmdlen]=0;
-                printf("cmd: %s",command);s
+            if(c=='\n') {
+                cmd[cmdlen]=0;
+                printf("cmd: %s\n",cmd);
+                cmdlen=0;
             }
-            command[cmdlen++]=c;
+            cmd[cmdlen++]=c;
             if(cmdlen==MAXCMDLEN-1) {
                 cmdlen=0;
             }
@@ -97,9 +137,13 @@ void app_main(void)
             ReadTemperatures();
             ProcessThermostat();
             if((now - tlastsenttemp)> Tsendtemps) {
-                tlasttempsend=now;
+                tlastsenttemp=now;
                 if( abs(Tp-Tplast)/Tplast > deltaT || abs(Tt-Ttlast)/Tplast > deltaT ) {
-                    SendTemps();
+                    char msg[10];
+                    sprintf(msg,"%.1f",Tp);
+                    Publish(MqttTpTopic,msg);
+                    sprintf(msg,"%.1f",Tt);
+                    Publish(MqttTtTopic,msg);
                     Tplast=Tp;
                     Ttlast=Tt;
                 }
@@ -111,24 +155,5 @@ void app_main(void)
     }
 }
 
-inline void ProcessThermostat() {
-    static int64_t tchange=0;
-    bool needPump=(Tp > Tp + delta1);
-    bool condA = needPump==true && neddPumpprec==false && state==0;
-    bool condB = state==0 && needPump==true && ((now - tchange) > Toff));
-    bool condC = state==1 && ((now - tchange) > Ton);
-    
-    if( condA || condB ) {
-        state=1;
-        pumpOnOff(true);
-        tchange=now;
-    }
-    if( condC ) {
-        state=0;
-        pumpOnOff(false);
-        tchange=now;
-    }
-    neddPumpprec=needPump;
 
-}
 

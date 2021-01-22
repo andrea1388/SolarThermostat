@@ -45,7 +45,7 @@ void simple_ota_example_task(void *pvParameter)
         .url = CONFIG_EXAMPLE_FIRMWARE_UPGRADE_URL,
         .cert_pem = (char *)ca_crt_start,
         .event_handler = _http_event_handler,
-        port = 8070
+        .port = 8070
     };
 
     config.skip_cert_common_name_check = true;

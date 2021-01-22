@@ -2,10 +2,10 @@
 #include "esp_flash.h"
 #include "nvs_flash.h"
 
-extern int32_t Tread; 
-extern int32_t Tsendtemps; 
-extern int32_t Ton;
-extern int32_t Toff;
+extern uint32_t Tread; 
+extern uint32_t Tsendtemps; 
+extern uint32_t Ton;
+extern uint32_t Toff;
 extern float deltaT;
 
 void loadParameters() {
