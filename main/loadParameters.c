@@ -2,6 +2,12 @@
 #include "esp_flash.h"
 #include "nvs_flash.h"
 
+extern int32_t Tread; 
+extern int32_t Tsendtemps; 
+extern int32_t Ton;
+extern int32_t Toff;
+extern float deltaT;
+
 void loadParameters() {
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -16,6 +22,7 @@ void loadParameters() {
     switch(r)
     {
         case ESP_OK:
+            nvs_get_u32(my_handle, "Tread", &Tread);
             /* nvs_get_u8(my_handle, "camera", &camera);
             nvs_get_u8(my_handle, "struttura", &struttura);
             nvs_get_u8(my_handle, "modalita", &modalita);

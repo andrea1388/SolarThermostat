@@ -8,3 +8,9 @@ void initGPIO()
     /* Set the GPIO as a push/pull output */
     gpio_set_direction(18, GPIO_MODE_INPUT);
 }
+
+void pumpOnOff(bool on)
+{
+    if(on) gpio_set_level(GPIOPUMP,1) else gpio_set_level(GPIOPUMP,0);
+}
+
