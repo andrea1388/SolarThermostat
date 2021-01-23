@@ -7,4 +7,6 @@ idf_component_register(SRCS
 "wifi.c"
 INCLUDE_DIRS ""
 EMBED_TXTFILES ${project_dir}/certs/ca.crt
+${project_dir}/certs/client.key
+${project_dir}/certs/client.crt
 )

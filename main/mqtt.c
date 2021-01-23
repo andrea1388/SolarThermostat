@@ -4,10 +4,17 @@
 #include "esp_tls.h"
 
 static const char *TAG = "MQTTS_EXAMPLE";
-const uint8_t ca_crt_start[] asm("_binary_ca_crt_start");
-const uint8_t client_crt_start[] asm("_binary_client_crt_start");
-const uint8_t client_key_start[] asm("_binary_client_key_start");
-#define CONFIG_BROKER_URI "ha.caveve.it"
+extern const uint8_t ca_crt_start[] asm("_binary_ca_crt_start");
+extern const uint8_t ca_crt_end[] asm("_binary_ca_crt_end");
+
+extern const uint8_t client_crt_start[] asm("_binary_client_crt_start");
+extern const uint8_t client_crt_end[] asm("_binary_client_crt_end");
+
+extern const uint8_t client_key_start[] asm("_binary_client_key_start");
+extern const uint8_t client_key_end[] asm("_binary_client_key_end");
+
+
+#define CONFIG_BROKER_URI "mqtts://ha.caveve.it:8883"
 extern char*MqttControlTopic;
 esp_mqtt_client_handle_t client;
 
@@ -79,11 +86,15 @@ void mqtt_app_start(void)
         .cert_pem = (const char *)ca_crt_start,
         .client_key_pem = (const char *)client_key_start,
         .client_cert_pem = (const char *)client_crt_start,
-        .port = 8883
+        .skip_cert_common_name_check=true
     };
 
     ESP_LOGI(TAG, "[APP] Free memory: %d bytes", esp_get_free_heap_size());
     esp_mqtt_client_handle_t client = esp_mqtt_client_init(&mqtt_cfg);
-    esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqtt_event_handler, client);
-    esp_mqtt_client_start(client);
+    if(client==NULL) {
+        ESP_LOGE(TAG,"esp_mqtt_client_init fails");
+    } else {
+        esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqtt_event_handler, client);
+        esp_mqtt_client_start(client);
+    }
 }

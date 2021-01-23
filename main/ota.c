@@ -5,9 +5,12 @@
 #include "esp_system.h"
 #include "esp_event.h"
 
-#define CONFIG_EXAMPLE_FIRMWARE_UPGRADE_URL "192.168.1.101"
+#define CONFIG_EXAMPLE_FIRMWARE_UPGRADE_URL "https://192.168.1.101:8070/SolarThermostat.bin"
 static const char *TAG = "ota";
-const uint8_t ca_crt_start[] asm("_binary_ca_crt_start");
+extern const uint8_t ca_crt_start[] asm("_binary_ca_crt_start");
+extern const uint8_t ca_crt_end[] asm("_binary_ca_crt_end");
+
+
 
 esp_err_t _http_event_handler(esp_http_client_event_t *evt)
 {
@@ -44,8 +47,7 @@ void simple_ota_example_task(void *pvParameter)
     esp_http_client_config_t config = {
         .url = CONFIG_EXAMPLE_FIRMWARE_UPGRADE_URL,
         .cert_pem = (char *)ca_crt_start,
-        .event_handler = _http_event_handler,
-        .port = 8070
+        .event_handler = _http_event_handler
     };
 
     config.skip_cert_common_name_check = true;
