@@ -1,9 +1,10 @@
-
 #include "mqtt_client.h"
+//#define LOG_LOCAL_LEVEL ESP_LOG_VERBOSE
 #include "esp_log.h"
 #include "esp_tls.h"
+#include "freertos/event_groups.h"
 
-static const char *TAG = "MQTTS_EXAMPLE";
+static const char *TAG = "MQTTS";
 extern const uint8_t ca_crt_start[] asm("_binary_ca_crt_start");
 extern const uint8_t ca_crt_end[] asm("_binary_ca_crt_end");
 
@@ -15,22 +16,34 @@ extern const uint8_t client_key_end[] asm("_binary_client_key_end");
 
 
 #define CONFIG_BROKER_URI "mqtts://ha.caveve.it:8883"
-extern char*MqttControlTopic;
+extern char* MqttControlTopic;
+extern char* MqttStatusTopic;
+extern EventGroupHandle_t s_wifi_event_group;
+#define WIFI_CONNECTED_BIT BIT0
+#define WIFI_FAIL_BIT      BIT1
+#define MQTT_CONNECTED_BIT BIT2
 esp_mqtt_client_handle_t client;
+
+void Publish(char *topic,char *data) {
+    if((xEventGroupGetBits(s_wifi_event_group) & MQTT_CONNECTED_BIT) == false) return;
+    int msg_id = esp_mqtt_client_publish(client, topic, data, strlen(data), 0, 0);
+    ESP_LOGI(TAG, "sent publish successful, msg_id=%d", msg_id);
+}
 
 static esp_err_t mqtt_event_handler_cb(esp_mqtt_event_handle_t event)
 {
-    //esp_mqtt_client_handle_t cli = event->client;
-    int msg_id;
+    esp_mqtt_client_handle_t client = event->client;
     // your_context_t *context = event->context;
     switch (event->event_id) {
         case MQTT_EVENT_CONNECTED:
             ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
-            msg_id = esp_mqtt_client_subscribe(client, MqttControlTopic, 0);
-            ESP_LOGI(TAG, "sent subscribe successful, msg_id=%d", msg_id);
+            esp_mqtt_client_subscribe(client, MqttControlTopic, 0);
+            xEventGroupSetBits(s_wifi_event_group, MQTT_CONNECTED_BIT);
+            Publish(MqttStatusTopic,"SolarThermostat started");
             break;
         case MQTT_EVENT_DISCONNECTED:
             ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
+            xEventGroupClearBits(s_wifi_event_group, MQTT_CONNECTED_BIT);
             break;
 
         case MQTT_EVENT_SUBSCRIBED:
@@ -74,23 +87,24 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
     mqtt_event_handler_cb(event_data);
 }
 
-void Publish(char *topic,char *data) {
-    int msg_id = esp_mqtt_client_publish(client, topic, data, strlen(data), 0, 0);
-    ESP_LOGI(TAG, "sent publish successful, msg_id=%d", msg_id);
-}
+
 
 void mqtt_app_start(void)
 {
     const esp_mqtt_client_config_t mqtt_cfg = {
         .uri = CONFIG_BROKER_URI,
         .cert_pem = (const char *)ca_crt_start,
-        .client_key_pem = (const char *)client_key_start,
-        .client_cert_pem = (const char *)client_crt_start,
+        .username = "homeassistant",
+        .password = "iw3gcb",
+        //.client_key_pem = (const char *)client_key_start,
+        //.client_cert_pem = (const char *)client_crt_start,
         .skip_cert_common_name_check=true
+        //.disable_auto_reconnect=true
+        
     };
 
     ESP_LOGI(TAG, "[APP] Free memory: %d bytes", esp_get_free_heap_size());
-    esp_mqtt_client_handle_t client = esp_mqtt_client_init(&mqtt_cfg);
+    client = esp_mqtt_client_init(&mqtt_cfg);
     if(client==NULL) {
         ESP_LOGE(TAG,"esp_mqtt_client_init fails");
     } else {

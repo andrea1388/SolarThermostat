@@ -42,7 +42,7 @@ esp_err_t _http_event_handler(esp_http_client_event_t *evt)
 
 void simple_ota_example_task(void *pvParameter)
 {
-    ESP_LOGI(TAG, "Starting OTA example");
+    ESP_LOGI(TAG, "Starting OTA update");
 
     esp_http_client_config_t config = {
         .url = CONFIG_EXAMPLE_FIRMWARE_UPGRADE_URL,
@@ -58,8 +58,5 @@ void simple_ota_example_task(void *pvParameter)
         esp_restart();
     } else {
         ESP_LOGE(TAG, "Firmware upgrade failed");
-    }
-    while (1) {
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
 }

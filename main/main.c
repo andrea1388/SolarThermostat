@@ -7,6 +7,7 @@
    CONDITIONS OF ANY KIND, either express or implied.
 */
 #include <stdio.h>
+#include <string.h>
 #include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -14,6 +15,7 @@
 #include "esp_spi_flash.h"
 #include "freertos/event_groups.h"
 #include "esp_timer.h"
+#include "esp_log.h"
 // https://github.com/UncleRus/esp-idf-lib
 // https://esp-idf-lib.readthedocs.io/en/latest/groups/ds18x20.html
 #include <ds18x20.h>
@@ -21,7 +23,9 @@
 
 #define GPIO_SENS_PANEL 1
 #define GPIO_SENS_TANK 2
-
+#define WIFI_CONNECTED_BIT BIT0
+#define WIFI_FAIL_BIT      BIT1
+#define MQTT_CONNECTED_BIT BIT2
 
 extern void initGPIO();
 extern void loadParameters();
@@ -44,7 +48,7 @@ float TempMargin=2.0;
 char MqttTpTopic[]="SolarThermostat/Tp";
 char MqttTtTopic[]="SolarThermostat/Tp";
 char MqttControlTopic[]="SolarThermostat/control";
-
+char MqttStatusTopic[]="SolarThermostat/status";
 
 void ProcessThermostat() {
     static int64_t tchange=0;
@@ -87,8 +91,16 @@ void app_main(void)
     deltaT = 0.1; // 10%
     loadParameters();
     initGPIO();
+    s_wifi_event_group = xEventGroupCreate();
     wifi_init_sta();
-    xTaskCreate(&simple_ota_example_task, "ota_example_task", 8192, NULL, 5, NULL);
+    //xTaskCreate(&simple_ota_example_task, "ota_example_task", 8192, NULL, 5, NULL);
+    
+    esp_log_level_set("*", ESP_LOG_INFO);
+/*     esp_log_level_set("MQTT_CLIENT", ESP_LOG_VERBOSE);
+    esp_log_level_set("TRANSPORT_TCP", ESP_LOG_VERBOSE);
+    esp_log_level_set("TRANSPORT_SSL", ESP_LOG_VERBOSE);
+    esp_log_level_set("TRANSPORT", ESP_LOG_VERBOSE);
+    esp_log_level_set("OUTBOX", ESP_LOG_VERBOSE); */
     mqtt_app_start();
     
 /*     ds18x20_addr_t panel_sens[1];
@@ -108,21 +120,28 @@ void app_main(void)
     */
     int64_t tlastread=0;  // time of the last temperatures read
     int64_t tlastsenttemp=0;  // time of the last temperatures send
+    int64_t tlastotacheck=0;
     float Tplast=0; // previous reading of Tp
     float Ttlast=0; // previous reading of Tt
     uint8_t cmdlen=0;
     #define MAXCMDLEN 100
+    #define TOTACheck 10000000
     char cmd[MAXCMDLEN];
+    bool otacheck=true;
 
     while(true) {
-        vTaskDelay(1);
-        //fgets(url_buf, OTA_URL_SIZE, stdin);
+        now=(esp_timer_get_time()/1000);
+        if((now - tlastotacheck) > TOTACheck) otacheck=true;
         int c = fgetc(stdin);
         if(c!= EOF) 
         {
             if(c=='\n') {
                 cmd[cmdlen]=0;
                 printf("cmd: %s\n",cmd);
+                if(strcmp(cmd,"o")==1) {
+                    otacheck=true;
+                    printf("ota check\n");
+                }
                 cmdlen=0;
             }
             cmd[cmdlen++]=c;
@@ -130,7 +149,11 @@ void app_main(void)
                 cmdlen=0;
             }
         }
-        now=(esp_timer_get_time()/1000);
+        if(otacheck){
+            if(xEventGroupGetBits(s_wifi_event_group) & WIFI_CONNECTED_BIT) simple_ota_example_task(NULL);
+            otacheck=false;
+        }       
+        
         
         if((now - tlastread) > Tread) {
             tlastread=now;
@@ -151,7 +174,8 @@ void app_main(void)
         }
 
             
-        
+        vTaskDelay(1);
+
     }
 }
 
