@@ -4,6 +4,7 @@
 #include "esp_https_ota.h"
 #include "esp_system.h"
 #include "esp_event.h"
+#include "globals.h"
 
 #define CONFIG_EXAMPLE_FIRMWARE_UPGRADE_URL "https://192.168.1.101:8070/SolarThermostat.bin"
 static const char *TAG = "ota";
@@ -42,6 +43,7 @@ esp_err_t _http_event_handler(esp_http_client_event_t *evt)
 
 void simple_ota_example_task(void *pvParameter)
 {
+    if(!(xEventGroupGetBits(s_wifi_event_group) & WIFI_CONNECTED_BIT)) return;
     ESP_LOGI(TAG, "Starting OTA update");
 
     esp_http_client_config_t config = {

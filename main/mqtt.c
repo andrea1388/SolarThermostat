@@ -1,32 +1,31 @@
 #include "mqtt_client.h"
-//#define LOG_LOCAL_LEVEL ESP_LOG_VERBOSE
+#define LOG_LOCAL_LEVEL ESP_LOG_VERBOSE
 #include "esp_log.h"
 #include "esp_tls.h"
 #include "freertos/event_groups.h"
+#include "globals.h"
 
 static const char *TAG = "MQTTS";
 extern const uint8_t ca_crt_start[] asm("_binary_ca_crt_start");
 extern const uint8_t ca_crt_end[] asm("_binary_ca_crt_end");
 
-extern const uint8_t client_crt_start[] asm("_binary_client_crt_start");
+/* extern const uint8_t client_crt_start[] asm("_binary_client_crt_start");
 extern const uint8_t client_crt_end[] asm("_binary_client_crt_end");
 
 extern const uint8_t client_key_start[] asm("_binary_client_key_start");
-extern const uint8_t client_key_end[] asm("_binary_client_key_end");
+extern const uint8_t client_key_end[] asm("_binary_client_key_end"); */
 
 
 #define CONFIG_BROKER_URI "mqtts://ha.caveve.it:8883"
 extern char* MqttControlTopic;
 extern char* MqttStatusTopic;
-extern EventGroupHandle_t s_wifi_event_group;
-#define WIFI_CONNECTED_BIT BIT0
-#define WIFI_FAIL_BIT      BIT1
-#define MQTT_CONNECTED_BIT BIT2
-esp_mqtt_client_handle_t client;
 
-void Publish(char *topic,char *data) {
-    if((xEventGroupGetBits(s_wifi_event_group) & MQTT_CONNECTED_BIT) == false) return;
-    int msg_id = esp_mqtt_client_publish(client, topic, data, strlen(data), 0, 0);
+
+
+
+void Publish(char *topic,char *msg) {
+    //if((xEventGroupGetBits(s_wifi_event_group) & MQTT_CONNECTED_BIT) == false) return;
+    int msg_id = esp_mqtt_client_publish(client, topic, msg, strlen(msg), 0, 0);
     ESP_LOGI(TAG, "sent publish successful, msg_id=%d", msg_id);
 }
 
@@ -37,9 +36,9 @@ static esp_err_t mqtt_event_handler_cb(esp_mqtt_event_handle_t event)
     switch (event->event_id) {
         case MQTT_EVENT_CONNECTED:
             ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
-            esp_mqtt_client_subscribe(client, MqttControlTopic, 0);
+            esp_mqtt_client_subscribe(client, "ciao", 0);
             xEventGroupSetBits(s_wifi_event_group, MQTT_CONNECTED_BIT);
-            Publish(MqttStatusTopic,"SolarThermostat started");
+            Publish("bueo","SolarThermostat started");
             break;
         case MQTT_EVENT_DISCONNECTED:
             ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
@@ -91,6 +90,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 
 void mqtt_app_start(void)
 {
+    esp_log_level_set("MQTT_CLIENT", ESP_LOG_VERBOSE);
     const esp_mqtt_client_config_t mqtt_cfg = {
         .uri = CONFIG_BROKER_URI,
         .cert_pem = (const char *)ca_crt_start,
@@ -109,6 +109,6 @@ void mqtt_app_start(void)
         ESP_LOGE(TAG,"esp_mqtt_client_init fails");
     } else {
         esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqtt_event_handler, client);
-        esp_mqtt_client_start(client);
+        //esp_mqtt_client_start(client);
     }
 }

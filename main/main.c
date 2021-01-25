@@ -16,23 +16,18 @@
 #include "freertos/event_groups.h"
 #include "esp_timer.h"
 #include "esp_log.h"
+#include "driver/gpio.h"
 // https://github.com/UncleRus/esp-idf-lib
 // https://esp-idf-lib.readthedocs.io/en/latest/groups/ds18x20.html
 #include <ds18x20.h>
+#include "globals.h"
 
 
-#define GPIO_SENS_PANEL 1
-#define GPIO_SENS_TANK 2
-#define WIFI_CONNECTED_BIT BIT0
-#define WIFI_FAIL_BIT      BIT1
-#define MQTT_CONNECTED_BIT BIT2
 
-extern void initGPIO();
 extern void loadParameters();
 extern void wifi_init_sta();
 extern void simple_ota_example_task(void *pvParameter);
 extern void mqtt_app_start(void);
-extern void pumpOnOff(bool on);
 extern void Publish(char *data,char*);
 extern void ReadTemperatures();
 
@@ -61,12 +56,12 @@ void ProcessThermostat() {
     
     if( condA || condB ) {
         state=1;
-        pumpOnOff(true);
+        gpio_set_level(GPIO_PUMP,1);
         tchange=now;
     }
     if( condC ) {
         state=0;
-        pumpOnOff(false);
+        gpio_set_level(GPIO_PUMP,0);
         tchange=now;
     }
     needPumpprec=needPump;
@@ -90,12 +85,14 @@ void app_main(void)
     Toff = 4*60*1000;
     deltaT = 0.1; // 10%
     loadParameters();
-    initGPIO();
     s_wifi_event_group = xEventGroupCreate();
     wifi_init_sta();
     //xTaskCreate(&simple_ota_example_task, "ota_example_task", 8192, NULL, 5, NULL);
-    
-    esp_log_level_set("*", ESP_LOG_INFO);
+    gpio_set_direction(GPIO_PUMP, GPIO_MODE_OUTPUT);
+    gpio_set_direction(GPIO_LED, GPIO_MODE_OUTPUT);
+    gpio_set_level(GPIO_LED,0);
+    gpio_set_level(GPIO_PUMP,0);
+    //esp_log_level_set("*", ESP_LOG_INFO);
 /*     esp_log_level_set("MQTT_CLIENT", ESP_LOG_VERBOSE);
     esp_log_level_set("TRANSPORT_TCP", ESP_LOG_VERBOSE);
     esp_log_level_set("TRANSPORT_SSL", ESP_LOG_VERBOSE);
@@ -150,7 +147,7 @@ void app_main(void)
             }
         }
         if(otacheck){
-            if(xEventGroupGetBits(s_wifi_event_group) & WIFI_CONNECTED_BIT) simple_ota_example_task(NULL);
+            simple_ota_example_task(NULL);
             otacheck=false;
         }       
         

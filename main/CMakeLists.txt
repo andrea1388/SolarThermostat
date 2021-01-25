@@ -1,6 +1,5 @@
 idf_component_register(SRCS 
 "main.c" 
-"gpio.c" 
 "loadParameters.c" 
 "ota.c"
 "mqtt.c" 
