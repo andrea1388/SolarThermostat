@@ -22,14 +22,13 @@
 #include <ds18x20.h>
 #include "globals.h"
 
-
+static const char *TAG = "main";
 
 extern void loadParameters();
 extern void wifi_init_sta();
 extern void simple_ota_example_task(void *pvParameter);
 extern void mqtt_app_start(void);
 extern void Publish(char *data,char*);
-extern void ReadTemperatures();
 
 EventGroupHandle_t s_wifi_event_group;
 float Tp,Tt; // store the last temp read
@@ -53,7 +52,7 @@ void ProcessThermostat() {
     bool condA = ((needPump==true) && (needPumpprec==false) && (state==0));
     bool condB = ((state==0) && (needPump==true) && ((now - tchange) > Toff));
     bool condC = ((state==1) && ((now - tchange) > Ton));
-    
+    ESP_LOGI(TAG, "cond a,b,c,state: %u,%u,%u - %u",condA,condB,condC,state);
     if( condA || condB ) {
         state=1;
         gpio_set_level(GPIO_PUMP,1);
@@ -74,6 +73,7 @@ void ReadTemperatures() {
     vTaskDelay(1);
     ds18x20_read_temperature(GPIO_SENS_PANEL, ds18x20_ANY, &Tp);
     ds18x20_read_temperature(GPIO_SENS_TANK, ds18x20_ANY, &Tt);
+    ESP_LOGI(TAG, "Tp, Tt: %f,%f",Tp,Tt);
 
 }
 
@@ -83,7 +83,7 @@ void app_main(void)
     Tsendtemps= 10*60*1000; // 10 minutes
     Ton= 40*1000;
     Toff = 4*60*1000;
-    deltaT = 0.1; // 10%
+    deltaT = 2.0; 
     loadParameters();
     s_wifi_event_group = xEventGroupCreate();
     wifi_init_sta();
@@ -154,15 +154,15 @@ void app_main(void)
         
         if((now - tlastread) > Tread) {
             tlastread=now;
+            char msg[10];
             ReadTemperatures();
             ProcessThermostat();
+            sprintf(msg,"%.1f",Tp);
+            sprintf(msg,"%.1f",Tt);
             if((now - tlastsenttemp)> Tsendtemps) {
                 tlastsenttemp=now;
-                if( abs(Tp-Tplast)/Tplast > deltaT || abs(Tt-Ttlast)/Tplast > deltaT ) {
-                    char msg[10];
-                    sprintf(msg,"%.1f",Tp);
+                if( abs(Tp-Tplast) > deltaT || abs(Tt-Ttlast) > deltaT ) {
                     Publish(MqttTpTopic,msg);
-                    sprintf(msg,"%.1f",Tt);
                     Publish(MqttTtTopic,msg);
                     Tplast=Tp;
                     Ttlast=Tt;
