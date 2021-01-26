@@ -31,6 +31,8 @@ extern void mqtt_app_start(void);
 extern void Publish(char *data,char*);
 
 EventGroupHandle_t s_wifi_event_group;
+ds18x20_addr_t panel_sens[1];
+ds18x20_addr_t tank_sens[1];
 float Tp,Tt; // store the last temp read
 int64_t now; // milliseconds from startup
 uint32_t Tread; // interval in milliseconds between temperature readings
@@ -40,7 +42,7 @@ uint32_t Toff; // Off time
 float deltaT; // delta T %, if one of the tho tenps red exceeds this delta then temp are transmitted to mqtt
 float TempMargin=2.0;
 char MqttTpTopic[]="SolarThermostat/Tp";
-char MqttTtTopic[]="SolarThermostat/Tp";
+char MqttTtTopic[]="SolarThermostat/Tt";
 char MqttControlTopic[]="SolarThermostat/control";
 char MqttStatusTopic[]="SolarThermostat/status";
 
@@ -48,11 +50,11 @@ void ProcessThermostat() {
     static int64_t tchange=0;
     static bool needPumpprec=false;
     static uint8_t state=0;
-    bool needPump=(Tp > Tp + TempMargin);
-    bool condA = ((needPump==true) && (needPumpprec==false) && (state==0));
+    bool needPump=(Tp > Tt + TempMargin); // condition that pump action is needed
+    bool condA = ((needPump==true) && (needPumpprec==false) && (state==0)); 
     bool condB = ((state==0) && (needPump==true) && ((now - tchange) > Toff));
     bool condC = ((state==1) && ((now - tchange) > Ton));
-    ESP_LOGI(TAG, "cond a,b,c,state: %u,%u,%u - %u",condA,condB,condC,state);
+    ESP_LOGI(TAG, "cond np,a,b,c: %u,%u,%u,%u - state:%u",needPump,condA,condB,condC,state);
     if( condA || condB ) {
         state=1;
         gpio_set_level(GPIO_PUMP,1);
@@ -68,21 +70,21 @@ void ProcessThermostat() {
 }
 
 void ReadTemperatures() {
-    ds18x20_measure(GPIO_SENS_PANEL, ds18x20_ANY, false);
-    ds18x20_measure(GPIO_SENS_TANK, ds18x20_ANY, false);
+    ds18x20_measure(GPIO_SENS_PANEL, panel_sens[0], true);
+    ds18x20_read_temperature(GPIO_SENS_PANEL, panel_sens[0], &Tp);
     vTaskDelay(1);
-    ds18x20_read_temperature(GPIO_SENS_PANEL, ds18x20_ANY, &Tp);
-    ds18x20_read_temperature(GPIO_SENS_TANK, ds18x20_ANY, &Tt);
-    ESP_LOGI(TAG, "Tp, Tt: %f,%f",Tp,Tt);
-
+    ds18x20_measure(GPIO_SENS_TANK, tank_sens[0], true);
+    ds18x20_read_temperature(GPIO_SENS_TANK, tank_sens[0], &Tt);
+    vTaskDelay(1);
+    ESP_LOGI(TAG, "Tp, Tt: %.1f,%.1f",Tp,Tt);
 }
 
 void app_main(void)
 {
     Tread = 1000;
-    Tsendtemps= 10*60*1000; // 10 minutes
+    Tsendtemps= 30*1000; // 10 minutes
     Ton= 40*1000;
-    Toff = 4*60*1000;
+    Toff = 40*1000;
     deltaT = 2.0; 
     loadParameters();
     s_wifi_event_group = xEventGroupCreate();
@@ -100,12 +102,11 @@ void app_main(void)
     esp_log_level_set("OUTBOX", ESP_LOG_VERBOSE); */
     mqtt_app_start();
     
-/*     ds18x20_addr_t panel_sens[1];
-    ds18x20_addr_t tank_sens[1];
-    sensor_count = ds18x20_scan_devices(GPIO_SENS_PANEL, panel_sens, 1);
+
+    int sensor_count = ds18x20_scan_devices(GPIO_SENS_PANEL, panel_sens, 1);
     if (sensor_count < 1) ESP_LOGE(TAG,"Panel sensor not detected");
     sensor_count = ds18x20_scan_devices(GPIO_SENS_TANK, tank_sens, 1);
-    if (sensor_count < 1) ESP_LOGE(TAG,"Tank sensor not detected"); */
+    if (sensor_count < 1) ESP_LOGE(TAG,"Tank sensor not detected");
     
     
 
@@ -157,15 +158,15 @@ void app_main(void)
             char msg[10];
             ReadTemperatures();
             ProcessThermostat();
-            sprintf(msg,"%.1f",Tp);
-            sprintf(msg,"%.1f",Tt);
             if((now - tlastsenttemp)> Tsendtemps) {
-                tlastsenttemp=now;
                 if( abs(Tp-Tplast) > deltaT || abs(Tt-Ttlast) > deltaT ) {
+                    sprintf(msg,"%.1f",Tp);
                     Publish(MqttTpTopic,msg);
+                    sprintf(msg,"%.1f",Tt);
                     Publish(MqttTtTopic,msg);
                     Tplast=Tp;
                     Ttlast=Tt;
+                    tlastsenttemp=now;
                 }
             }
         }
