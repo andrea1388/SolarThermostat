@@ -21,14 +21,21 @@
 // https://esp-idf-lib.readthedocs.io/en/latest/groups/ds18x20.html
 #include <ds18x20.h>
 #include "globals.h"
+#include <iostream>
+#include "cmdDecoder.hpp"
+#define MAXCMDLEN 100
 
 static const char *TAG = "main";
 
-extern void loadParameters();
-extern void wifi_init_sta();
-extern void simple_ota_example_task(void *pvParameter);
-extern void mqtt_app_start(void);
-extern void Publish(char *data,char*);
+extern "C" {
+    void app_main(void);
+    extern void loadParameters();
+    extern void wifi_init_sta();
+    extern void simple_ota_example_task(void *pvParameter);
+    extern void mqtt_app_start(void);
+    extern void Publish(char *data,char*);
+}
+
 
 EventGroupHandle_t s_wifi_event_group;
 ds18x20_addr_t panel_sens[1];
@@ -45,6 +52,8 @@ char MqttTpTopic[]="SolarThermostat/Tp";
 char MqttTtTopic[]="SolarThermostat/Tt";
 char MqttControlTopic[]="SolarThermostat/control";
 char MqttStatusTopic[]="SolarThermostat/status";
+bool otacheck=true;
+cmdDecoder decoder;
 
 void ProcessThermostat() {
     static int64_t tchange=0;
@@ -79,6 +88,30 @@ void ReadTemperatures() {
     ESP_LOGI(TAG, "Tp, Tt: %.1f,%.1f",Tp,Tt);
 }
 
+void ProcessStdin() {
+    static char cmd[MAXCMDLEN];
+    static uint8_t cmdlen=0;
+    int c = fgetc(stdin);
+    if(c!= EOF) 
+    {
+        if(c=='\n') {
+            cmd[cmdlen]=0;
+            if(decoder.parse(cmd)) {
+
+            } else cout << decoder.err << endl;
+            
+            cmdlen=0;
+        }
+        cmd[cmdlen++]=tolower(c);
+        if(cmdlen==MAXCMDLEN-1) {
+            cmdlen=0;
+        }
+    }
+}
+
+using namespace std;
+
+
 void app_main(void)
 {
     Tread = 1000;
@@ -87,6 +120,7 @@ void app_main(void)
     Toff = 40*1000;
     deltaT = 2.0; 
     loadParameters();
+    
     s_wifi_event_group = xEventGroupCreate();
     wifi_init_sta();
     //xTaskCreate(&simple_ota_example_task, "ota_example_task", 8192, NULL, 5, NULL);
@@ -121,32 +155,17 @@ void app_main(void)
     int64_t tlastotacheck=0;
     float Tplast=0; // previous reading of Tp
     float Ttlast=0; // previous reading of Tt
-    uint8_t cmdlen=0;
-    #define MAXCMDLEN 100
+    
+    
     #define TOTACheck 10000000
-    char cmd[MAXCMDLEN];
-    bool otacheck=true;
+    
+    
 
     while(true) {
         now=(esp_timer_get_time()/1000);
-        if((now - tlastotacheck) > TOTACheck) otacheck=true;
-        int c = fgetc(stdin);
-        if(c!= EOF) 
-        {
-            if(c=='\n') {
-                cmd[cmdlen]=0;
-                printf("cmd: %s\n",cmd);
-                if(strcmp(cmd,"o")==1) {
-                    otacheck=true;
-                    printf("ota check\n");
-                }
-                cmdlen=0;
-            }
-            cmd[cmdlen++]=c;
-            if(cmdlen==MAXCMDLEN-1) {
-                cmdlen=0;
-            }
-        }
+        if((now - tlastotacheck) > TOTACheck) otacheck=true; // force a ota check every TOTACheck milliseconds
+        ProcessStdin();
+
         if(otacheck){
             simple_ota_example_task(NULL);
             otacheck=false;
