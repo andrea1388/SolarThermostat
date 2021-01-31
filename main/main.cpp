@@ -23,6 +23,7 @@
 #include "globals.h"
 #include <iostream>
 #include "cmdDecoder.hpp"
+#include "wifi.hpp"
 #define MAXCMDLEN 100
 
 static const char *TAG = "main";
@@ -122,6 +123,9 @@ void app_main(void)
     loadParameters();
     
     s_wifi_event_group = xEventGroupCreate();
+    WiFi wifi;
+    wifi.AddNetwork("c","a");
+    wifi.Connect();
     wifi_init_sta();
     //xTaskCreate(&simple_ota_example_task, "ota_example_task", 8192, NULL, 5, NULL);
     gpio_set_direction(GPIO_PUMP, GPIO_MODE_OUTPUT);
