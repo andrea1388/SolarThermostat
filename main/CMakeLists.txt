@@ -3,7 +3,7 @@ idf_component_register(SRCS
 "loadParameters.c" 
 "ota.c"
 "mqtt.c" 
-"wifi.c"
+"wifi.cpp"
 "cmdDecoder.cpp"
 INCLUDE_DIRS ""
 EMBED_TXTFILES ${project_dir}/certs/ca.crt

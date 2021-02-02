@@ -110,6 +110,20 @@ void ProcessStdin() {
     }
 }
 
+void wifievent(esp_event_base_t event_base,int32_t event_id, void* event_data) {
+    if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
+        ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
+        ESP_LOGI(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
+        xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+        gpio_set_level(GPIO_LED,1);
+        esp_mqtt_client_start(client);
+    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        gpio_set_level(GPIO_LED,0);
+        esp_mqtt_client_stop(client);
+    }
+
+}
+
 using namespace std;
 
 
@@ -125,8 +139,9 @@ void app_main(void)
     s_wifi_event_group = xEventGroupCreate();
     WiFi wifi;
     wifi.AddNetwork("c","a");
+    wifi.callback=*wifievent;
     wifi.Connect();
-    wifi_init_sta();
+    //wifi_init_sta();
     //xTaskCreate(&simple_ota_example_task, "ota_example_task", 8192, NULL, 5, NULL);
     gpio_set_direction(GPIO_PUMP, GPIO_MODE_OUTPUT);
     gpio_set_direction(GPIO_LED, GPIO_MODE_OUTPUT);
