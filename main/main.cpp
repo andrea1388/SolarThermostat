@@ -137,10 +137,10 @@ void app_main(void)
     loadParameters();
     
     s_wifi_event_group = xEventGroupCreate();
-    WiFi wifi;
-    wifi.AddNetwork("c","a");
-    wifi.callback=*wifievent;
-    wifi.Connect();
+    //WiFi wifi;
+    WiFi::AddNetwork("Mordor","gandalfilgrigio");
+    WiFi::callback=&wifievent;
+    WiFi::Connect();
     //wifi_init_sta();
     //xTaskCreate(&simple_ota_example_task, "ota_example_task", 8192, NULL, 5, NULL);
     gpio_set_direction(GPIO_PUMP, GPIO_MODE_OUTPUT);
