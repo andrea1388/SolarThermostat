@@ -6,3 +6,4 @@ certs/.DS_Store
 .DS_Store
 sdkconfig.old
 
+certs/SolarThermostat.bin

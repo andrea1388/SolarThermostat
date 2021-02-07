@@ -7,6 +7,7 @@
    CONDITIONS OF ANY KIND, either express or implied.
 */
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
@@ -117,6 +118,7 @@ void wifievent(esp_event_base_t event_base,int32_t event_id, void* event_data) {
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
         gpio_set_level(GPIO_LED,1);
         esp_mqtt_client_start(client);
+        xTaskCreate(&simple_ota_example_task, "ota_example_task", 8192, NULL, 5, NULL);
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         gpio_set_level(GPIO_LED,0);
         esp_mqtt_client_stop(client);
@@ -135,7 +137,7 @@ void app_main(void)
     Toff = 40*1000;
     deltaT = 2.0; 
     loadParameters();
-    
+    srand((unsigned int)esp_timer_get_time());
     s_wifi_event_group = xEventGroupCreate();
     //WiFi wifi;
     WiFi::AddNetwork("Mordor","gandalfilgrigio");
@@ -147,7 +149,7 @@ void app_main(void)
     gpio_set_direction(GPIO_LED, GPIO_MODE_OUTPUT);
     gpio_set_level(GPIO_LED,0);
     gpio_set_level(GPIO_PUMP,0);
-    //esp_log_level_set("*", ESP_LOG_INFO);
+    esp_log_level_set("*", ESP_LOG_INFO);
 /*     esp_log_level_set("MQTT_CLIENT", ESP_LOG_VERBOSE);
     esp_log_level_set("TRANSPORT_TCP", ESP_LOG_VERBOSE);
     esp_log_level_set("TRANSPORT_SSL", ESP_LOG_VERBOSE);

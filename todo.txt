@@ -1,0 +1,5 @@
+1) mqtt user/password loaded from parameters
+2) ota goes in loop, prg version must be checked (esp_https_ota_get_img_desc)
+3) mqttcli as a class
+4) random delay for ota
+5) params via commands/mqtt

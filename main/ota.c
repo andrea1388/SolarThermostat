@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include "esp_log.h"
 #include "esp_ota_ops.h"
 #include "esp_http_client.h"
@@ -43,9 +44,6 @@ esp_err_t _http_event_handler(esp_http_client_event_t *evt)
 
 void simple_ota_example_task(void *pvParameter)
 {
-    if(!(xEventGroupGetBits(s_wifi_event_group) & WIFI_CONNECTED_BIT)) return;
-    ESP_LOGI(TAG, "Starting OTA update");
-
     esp_http_client_config_t config = {
         .url = CONFIG_EXAMPLE_FIRMWARE_UPGRADE_URL,
         .cert_pem = (char *)ca_crt_start,
@@ -54,11 +52,20 @@ void simple_ota_example_task(void *pvParameter)
 
     config.skip_cert_common_name_check = true;
 
+    for (;;) {
+        if((xEventGroupGetBits(s_wifi_event_group) & WIFI_CONNECTED_BIT)) {
+            ESP_LOGI(TAG, "Starting OTA update");
+            esp_err_t ret = esp_https_ota(&config);
+            if (ret == ESP_OK) {
+                esp_restart();
+            } else {
+                ESP_LOGI(TAG, "Firmware upgrade failed");
+            }
+            
+        }
+        int delay=60*24+60*rand()/RAND_MAX;
+        ESP_LOGI(TAG, "Sleep OTA %u minutes",delay);
+        vTaskDelay(delay*60*1000/portTICK_PERIOD_MS);
 
-    esp_err_t ret = esp_https_ota(&config);
-    if (ret == ESP_OK) {
-        esp_restart();
-    } else {
-        ESP_LOGE(TAG, "Firmware upgrade failed");
     }
 }
