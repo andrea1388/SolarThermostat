@@ -32,11 +32,37 @@ static const char *TAG = "main";
 extern "C" {
     void app_main(void);
     extern void loadParameters();
-    extern void wifi_init_sta();
     extern void simple_ota_example_task(void *pvParameter);
     extern void mqtt_app_start(void);
     extern void Publish(char *data,char*);
 }
+
+void WiFiEvent(WiFi* wifi, uint8_t ev)
+{
+    switch(ev)
+    {
+        case WIFI_START: // start
+            wifi->Connect();
+            break;
+        case WIFI_DISCONNECT: // disconnected
+            ESP_LOGI(TAG,"Disconnected.");
+            wifi->Connect();
+            gpio_set_level(GPIO_LED,0);
+            esp_mqtt_client_stop(client);
+            break;
+        case WIFI_GOT_IP: // connected
+            ESP_LOGI(TAG,"GotIP");
+            //ESP_LOGI("Connected. ip=%s",wifi->ip);
+            xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+            gpio_set_level(GPIO_LED,1);
+            esp_mqtt_client_start(client);
+            xTaskCreate(&simple_ota_example_task, "ota_example_task", 8192, NULL, 5, NULL);
+            break;
+
+    }
+}
+
+
 
 
 EventGroupHandle_t s_wifi_event_group;
@@ -111,20 +137,7 @@ void ProcessStdin() {
     }
 }
 
-void wifievent(esp_event_base_t event_base,int32_t event_id, void* event_data) {
-    if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
-        ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
-        ESP_LOGI(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
-        xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
-        gpio_set_level(GPIO_LED,1);
-        esp_mqtt_client_start(client);
-        xTaskCreate(&simple_ota_example_task, "ota_example_task", 8192, NULL, 5, NULL);
-    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
-        gpio_set_level(GPIO_LED,0);
-        esp_mqtt_client_stop(client);
-    }
 
-}
 
 using namespace std;
 
@@ -139,17 +152,15 @@ void app_main(void)
     loadParameters();
     srand((unsigned int)esp_timer_get_time());
     s_wifi_event_group = xEventGroupCreate();
-    //WiFi wifi;
-    WiFi::AddNetwork("Mordor","gandalfilgrigio");
-    WiFi::callback=&wifievent;
-    WiFi::Connect();
-    //wifi_init_sta();
-    //xTaskCreate(&simple_ota_example_task, "ota_example_task", 8192, NULL, 5, NULL);
     gpio_set_direction(GPIO_PUMP, GPIO_MODE_OUTPUT);
     gpio_set_direction(GPIO_LED, GPIO_MODE_OUTPUT);
     gpio_set_level(GPIO_LED,0);
     gpio_set_level(GPIO_PUMP,0);
     esp_log_level_set("*", ESP_LOG_INFO);
+
+    WiFi wifi;
+    wifi.onEvent=&WiFiEvent;
+    wifi.Start("Mordor","gandalfilgrigio");
 /*     esp_log_level_set("MQTT_CLIENT", ESP_LOG_VERBOSE);
     esp_log_level_set("TRANSPORT_TCP", ESP_LOG_VERBOSE);
     esp_log_level_set("TRANSPORT_SSL", ESP_LOG_VERBOSE);
