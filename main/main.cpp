@@ -25,6 +25,7 @@
 #include <iostream>
 #include "cmdDecoder.hpp"
 #include "wifi.hpp"
+#include "mqtt.hpp"
 #define MAXCMDLEN 100
 
 static const char *TAG = "main";
@@ -48,14 +49,14 @@ void WiFiEvent(WiFi* wifi, uint8_t ev)
             ESP_LOGI(TAG,"Disconnected.");
             wifi->Connect();
             gpio_set_level(GPIO_LED,0);
-            esp_mqtt_client_stop(client);
+            mqtt.stop();
             break;
         case WIFI_GOT_IP: // connected
             ESP_LOGI(TAG,"GotIP");
             //ESP_LOGI("Connected. ip=%s",wifi->ip);
             xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
             gpio_set_level(GPIO_LED,1);
-            esp_mqtt_client_start(client);
+            mqtt.start();
             xTaskCreate(&simple_ota_example_task, "ota_example_task", 8192, NULL, 5, NULL);
             break;
 
@@ -161,12 +162,16 @@ void app_main(void)
     WiFi wifi;
     wifi.onEvent=&WiFiEvent;
     wifi.Start("Mordor","gandalfilgrigio");
+
+    Mqtt mqtt;
+    param.load("mqtt_username",mqtt.username);
+    mqtt.Init();
+
 /*     esp_log_level_set("MQTT_CLIENT", ESP_LOG_VERBOSE);
     esp_log_level_set("TRANSPORT_TCP", ESP_LOG_VERBOSE);
     esp_log_level_set("TRANSPORT_SSL", ESP_LOG_VERBOSE);
     esp_log_level_set("TRANSPORT", ESP_LOG_VERBOSE);
     esp_log_level_set("OUTBOX", ESP_LOG_VERBOSE); */
-    mqtt_app_start();
     
 
     int sensor_count = ds18x20_scan_devices(GPIO_SENS_PANEL, panel_sens, 1);

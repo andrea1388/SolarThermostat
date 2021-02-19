@@ -1,7 +1,7 @@
 #include "mqtt_client.h"
 #include "freertos/event_groups.h"
 #include "driver/gpio.h"
-esp_mqtt_client_handle_t client;
+
 extern EventGroupHandle_t s_wifi_event_group;
 
 #define GPIO_SENS_PANEL GPIO_NUM_21
