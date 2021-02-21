@@ -1,14 +1,14 @@
 #ifndef MQTT_hpp
 #define MQTT_hpp
+#include "mqtt_client.h"
 
 class Mqtt {
     public:
-        void Connect(const char* username, const char* password,const char* uri,const char* cert);
+        void Init(const char* username, const char* password,const char* uri,const char* cert);
         void Start();
         void Stop();
-        void (*onEvent)(WiFi* wifi, uint8_t ev);
-        vector<string> ssid;
-        vector<string> password;
+        void (*onEvent)(Mqtt* mqtt,esp_mqtt_event_handle_t event);
+
 
     private:
         esp_mqtt_client_handle_t client;
