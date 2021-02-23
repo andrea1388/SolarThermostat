@@ -1,2 +1,4 @@
-idf_component_register(SRCS                        
-INCLUDE_DIRS "include")
+idf_component_register(SRCS     
+"mqtt.cpp"                   
+INCLUDE_DIRS .
+REQUIRES mqtt)

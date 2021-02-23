@@ -1,6 +1,7 @@
 #include "mqtt.h"
-using namespace std;
-
+#include "mqtt_client.h"
+#include "esp_log.h"
+static const char* TAG = "Mqtt";
 
 void Mqtt::Start()
 {
@@ -10,6 +11,18 @@ void Mqtt::Start()
 void Mqtt::Stop()
 {
     esp_mqtt_client_stop(client);
+}
+
+int Mqtt::Publish(char *topic,char *msg) {
+    //if((xEventGroupGetBits(s_wifi_event_group) & MQTT_CONNECTED_BIT) == false) return;
+    ESP_LOGD(TAG, "Mqtt::Publish topic=%s, msg=%s", topic, msg);
+    return esp_mqtt_client_publish(client, topic, msg, strlen(msg), 0, 0);
+
+}
+int Mqtt::Subscribe(char *topic)
+{
+    ESP_LOGD(TAG, "Mqtt::Subscribe topic=%s", topic);
+    return esp_mqtt_client_subscribe(client, topic, 0);
 }
 
 void Mqtt::mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {
@@ -22,7 +35,6 @@ void Mqtt::mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t
     // your_context_t *context = event->context;
     
     */
-    return ESP_OK;
 
 }
 
@@ -30,6 +42,7 @@ void Mqtt::mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t
 void Mqtt::Init(const char* _username, const char* _password,const char* _uri,const char* _cert)
 {
     //esp_log_level_set("MQTT_CLIENT", ESP_LOG_VERBOSE);
+
     esp_mqtt_client_config_t mqtt_cfg = {};
     mqtt_cfg.uri=_uri;
     mqtt_cfg.username=_username;
@@ -41,7 +54,7 @@ void Mqtt::Init(const char* _username, const char* _password,const char* _uri,co
     if(client==NULL) {
         //ESP_LOGE(TAG,"esp_mqtt_client_init fails");
     } else {
-        esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, &Mqtt::mqtt_event_handler, (void*)this);
+        esp_mqtt_client_register_event(client, (esp_mqtt_event_id_t)ESP_EVENT_ANY_ID, &Mqtt::mqtt_event_handler, (void*)this);
     }
 }
 

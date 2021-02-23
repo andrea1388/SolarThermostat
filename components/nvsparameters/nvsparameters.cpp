@@ -1,4 +1,6 @@
 #include "nvsparameters.hpp"
+#include "esp_log.h"
+static const char* TAG = "nvsparameters";
 NvsParameters::NvsParameters()
 {
     esp_err_t err = nvs_flash_init();
@@ -14,13 +16,13 @@ NvsParameters::NvsParameters()
 
 }
 
-void NvsParameters::load(char* paramname, char*out)
+void NvsParameters::load(const char* paramname, char*out)
 {
     size_t required_size;
     esp_err_t err = nvs_get_str(my_handle, paramname, NULL, &required_size);
     if(err==ESP_OK)
     {
-        out = malloc(required_size);
+        out =(char*) malloc(required_size);
         nvs_get_str(my_handle, paramname, out, &required_size);
         ESP_LOGI(TAG, "NvsParameters::load param=%s val=%s",paramname,out);
     } else
@@ -29,12 +31,12 @@ void NvsParameters::load(char* paramname, char*out)
     }
 }
 
-void NvsParameters::load(char* paramname, uint_8t*out)
+void NvsParameters::load(const char* paramname, uint8_t *out)
 {
     esp_err_t err = nvs_get_u8(my_handle, paramname,  out);
     if(err==ESP_OK)
     {
-        ESP_LOGI(TAG, "NvsParameters::load param=%s val=%d",paramname,out);
+        ESP_LOGI(TAG, "NvsParameters::load param=%s val=%d",paramname,*out);
     } else
     {
         ESP_LOGI(TAG, "NvsParameters::load param=%s not found",paramname);

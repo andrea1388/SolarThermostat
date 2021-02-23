@@ -35,16 +35,10 @@ static const char *TAG = "main";
 
 extern "C" {
     void app_main(void);
-    extern void loadParameters();
     extern void simple_ota_example_task(void *pvParameter);
-    extern void mqtt_app_start(void);
-    extern void Publish(char *data,char*);
 }
 
-
-
-
-
+// global objects
 EventGroupHandle_t s_wifi_event_group;
 ds18x20_addr_t panel_sens[1];
 ds18x20_addr_t tank_sens[1];
@@ -66,6 +60,115 @@ Mqtt mqtt;
 WiFi wifi;
 NvsParameters param;
 extern const uint8_t ca_crt_start[] asm("_binary_ca_crt_start");
+
+
+void app_main(void)
+{
+    Tread = 1000;
+    Tsendtemps= 30*1000; // 10 minutes
+    Ton= 40*1000;
+    Toff = 40*1000;
+    deltaT = 2.0; 
+
+    //srand((unsigned int)esp_timer_get_time());
+    //s_wifi_event_group = xEventGroupCreate();
+
+    // setup gpio
+    gpio_set_direction(GPIO_PUMP, GPIO_MODE_OUTPUT);
+    gpio_set_direction(GPIO_LED, GPIO_MODE_OUTPUT);
+    gpio_set_level(GPIO_LED,0);
+    gpio_set_level(GPIO_PUMP,0);
+    esp_log_level_set("*", ESP_LOG_INFO);
+
+    // configure wifi
+    wifi.onEvent=&WiFiEvent;
+    wifi.Start("Mordor","gandalfilgrigio");
+
+    //configure mqtt
+    char *username=NULL;
+    char *password=NULL;
+    char *uri=NULL;
+    param.load("mqtt_username",username);
+    param.load("mqtt_password",password);
+    param.load("mqtt_uri",uri);
+    mqtt.Init(username,password,uri,(const char*)ca_crt_start);
+    mqtt.onEvent=&MqttEvent;
+    free(username);
+    free(password);
+    free(uri);
+
+
+/*     esp_log_level_set("MQTT_CLIENT", ESP_LOG_VERBOSE);
+    esp_log_level_set("TRANSPORT_TCP", ESP_LOG_VERBOSE);
+    esp_log_level_set("TRANSPORT_SSL", ESP_LOG_VERBOSE);
+    esp_log_level_set("TRANSPORT", ESP_LOG_VERBOSE);
+    esp_log_level_set("OUTBOX", ESP_LOG_VERBOSE); */
+    
+    // configure ds18b20s
+    int sensor_count = ds18x20_scan_devices(GPIO_SENS_PANEL, panel_sens, 1);
+    if (sensor_count < 1) ESP_LOGE(TAG,"Panel sensor not detected");
+    sensor_count = ds18x20_scan_devices(GPIO_SENS_TANK, tank_sens, 1);
+    if (sensor_count < 1) ESP_LOGE(TAG,"Tank sensor not detected");
+    
+    
+
+    /*
+        Main cycle:
+        periodically (Tpoll) read temperatures Tp and Tt and act the pump if necessary
+        periodically (Tsendtemps) send Tp and Tt to MQTT broker, but only if they differ more than a certain amount (deltaT)
+        read characters from stdin and respond to commands issued
+    */
+    int64_t tlastread=0;  // time of the last temperatures read
+    int64_t tlastsenttemp=0;  // time of the last temperatures send
+    int64_t tlastotacheck=0;
+    float Tplast=0; // previous reading of Tp
+    float Ttlast=0; // previous reading of Tt
+    
+    
+    #define TOTACheck 10000000
+    
+    
+
+    while(true) {
+        now=(esp_timer_get_time()/1000);
+        if((now - tlastotacheck) > TOTACheck) otacheck=true; // force a ota check every TOTACheck milliseconds
+        ProcessStdin();
+
+        if(otacheck){
+            simple_ota_example_task(NULL);
+            otacheck=false;
+        }       
+        
+        
+        if((now - tlastread) > Tread) {
+            tlastread=now;
+            char msg[10];
+            ReadTemperatures();
+            ProcessThermostat();
+            if((now - tlastsenttemp)> Tsendtemps) {
+                if( abs(Tp-Tplast) > deltaT || abs(Tt-Ttlast) > deltaT ) {
+                    sprintf(msg,"%.1f",Tp);
+                    mqtt.Publish(MqttTpTopic,msg);
+                    sprintf(msg,"%.1f",Tt);
+                    mqtt.Publish(MqttTtTopic,msg);
+                    Tplast=Tp;
+                    Ttlast=Tt;
+                    tlastsenttemp=now;
+                }
+            }
+        }
+
+            
+        vTaskDelay(1);
+
+    }
+}
+
+
+
+
+
+
 
 void MqttEvent(Mqtt* mqtt, esp_mqtt_event_handle_t event)
 {
@@ -192,108 +295,8 @@ void ProcessStdin() {
 
 
 
-using namespace std;
 
 
-void app_main(void)
-{
-    Tread = 1000;
-    Tsendtemps= 30*1000; // 10 minutes
-    Ton= 40*1000;
-    Toff = 40*1000;
-    deltaT = 2.0; 
-    loadParameters();
-    srand((unsigned int)esp_timer_get_time());
-    s_wifi_event_group = xEventGroupCreate();
-    gpio_set_direction(GPIO_PUMP, GPIO_MODE_OUTPUT);
-    gpio_set_direction(GPIO_LED, GPIO_MODE_OUTPUT);
-    gpio_set_level(GPIO_LED,0);
-    gpio_set_level(GPIO_PUMP,0);
-    esp_log_level_set("*", ESP_LOG_INFO);
-
-    // configure wifi
-    wifi.onEvent=&WiFiEvent;
-    wifi.Start("Mordor","gandalfilgrigio");
-
-    //configure mqtt
-    char *username;
-    char *password;
-    char *uri;
-    param.load("mqtt_username",username);
-    param.load("mqtt_password",password);
-    param.load("mqtt_uri",uri);
-    mqtt.Init(username,password,uri,(const char*)ca_crt_start);
-    mqtt.onEvent=&MqttEvent;
-    free(username);
-    free(password);
-    free(uri);
-
-
-/*     esp_log_level_set("MQTT_CLIENT", ESP_LOG_VERBOSE);
-    esp_log_level_set("TRANSPORT_TCP", ESP_LOG_VERBOSE);
-    esp_log_level_set("TRANSPORT_SSL", ESP_LOG_VERBOSE);
-    esp_log_level_set("TRANSPORT", ESP_LOG_VERBOSE);
-    esp_log_level_set("OUTBOX", ESP_LOG_VERBOSE); */
-    
-
-    int sensor_count = ds18x20_scan_devices(GPIO_SENS_PANEL, panel_sens, 1);
-    if (sensor_count < 1) ESP_LOGE(TAG,"Panel sensor not detected");
-    sensor_count = ds18x20_scan_devices(GPIO_SENS_TANK, tank_sens, 1);
-    if (sensor_count < 1) ESP_LOGE(TAG,"Tank sensor not detected");
-    
-    
-
-    /*
-        Main cycle:
-        periodically (Tpoll) read temperatures Tp and Tt and act the pump if necessary
-        periodically (Tsendtemps) send Tp and Tt to MQTT broker, but only if they differ more than a certain amount (deltaT)
-        read characters from stdin and respond to commands issued
-    */
-    int64_t tlastread=0;  // time of the last temperatures read
-    int64_t tlastsenttemp=0;  // time of the last temperatures send
-    int64_t tlastotacheck=0;
-    float Tplast=0; // previous reading of Tp
-    float Ttlast=0; // previous reading of Tt
-    
-    
-    #define TOTACheck 10000000
-    
-    
-
-    while(true) {
-        now=(esp_timer_get_time()/1000);
-        if((now - tlastotacheck) > TOTACheck) otacheck=true; // force a ota check every TOTACheck milliseconds
-        ProcessStdin();
-
-        if(otacheck){
-            simple_ota_example_task(NULL);
-            otacheck=false;
-        }       
-        
-        
-        if((now - tlastread) > Tread) {
-            tlastread=now;
-            char msg[10];
-            ReadTemperatures();
-            ProcessThermostat();
-            if((now - tlastsenttemp)> Tsendtemps) {
-                if( abs(Tp-Tplast) > deltaT || abs(Tt-Ttlast) > deltaT ) {
-                    sprintf(msg,"%.1f",Tp);
-                    Publish(MqttTpTopic,msg);
-                    sprintf(msg,"%.1f",Tt);
-                    Publish(MqttTtTopic,msg);
-                    Tplast=Tp;
-                    Ttlast=Tt;
-                    tlastsenttemp=now;
-                }
-            }
-        }
-
-            
-        vTaskDelay(1);
-
-    }
-}
 
 
 
