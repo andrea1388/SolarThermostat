@@ -1,6 +1,9 @@
 #ifndef MQTT_hpp
 #define MQTT_hpp
+
 #include "mqtt_client.h"
+#include "esp_log.h"
+
 
 class Mqtt {
     public:

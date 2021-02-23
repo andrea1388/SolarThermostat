@@ -6,6 +6,7 @@
    software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
    CONDITIONS OF ANY KIND, either express or implied.
 */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,10 +24,11 @@
 #include <ds18x20.h>
 #include "globals.h"
 #include <iostream>
-#include "mqtt_client.h"
+
 #include "cmdDecoder.hpp"
 #include "wifi.hpp"
-#include "mqtt.hpp"
+#include "mqtt.h"
+#include "nvsparameters.hpp"
 #define MAXCMDLEN 100
 
 static const char *TAG = "main";
@@ -62,6 +64,7 @@ bool otacheck=true;
 cmdDecoder decoder;
 Mqtt mqtt;
 WiFi wifi;
+NvsParameters param;
 extern const uint8_t ca_crt_start[] asm("_binary_ca_crt_start");
 
 void MqttEvent(Mqtt* mqtt, esp_mqtt_event_handle_t event)
@@ -70,8 +73,8 @@ void MqttEvent(Mqtt* mqtt, esp_mqtt_event_handle_t event)
     {
         case MQTT_EVENT_CONNECTED:
             ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
-            esp_mqtt_client_subscribe(client, "ciao", 0);
-            mqtt->Publish("bueo","SolarThermostat started");
+            //esp_mqtt_client_subscribe(this->client, "ciao", 0);
+            //mqtt->Publish("bueo","SolarThermostat started");
             break;
         case MQTT_EVENT_DISCONNECTED:
             ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
@@ -213,13 +216,13 @@ void app_main(void)
     wifi.Start("Mordor","gandalfilgrigio");
 
     //configure mqtt
-    char *username=NULL;
-    char *password=NULL;
-    char *uri=NULL;
+    char *username;
+    char *password;
+    char *uri;
     param.load("mqtt_username",username);
     param.load("mqtt_password",password);
     param.load("mqtt_uri",uri);
-    mqtt.Init(username,password,uri,ca_crt_start);
+    mqtt.Init(username,password,uri,(const char*)ca_crt_start);
     mqtt.onEvent=&MqttEvent;
     free(username);
     free(password);

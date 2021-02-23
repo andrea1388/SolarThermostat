@@ -1,4 +1,3 @@
-#include "mqtt_client.h"
 #include "freertos/event_groups.h"
 #include "driver/gpio.h"
 

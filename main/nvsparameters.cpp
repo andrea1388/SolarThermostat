@@ -1,3 +1,4 @@
+#include "nvsparameters.hpp"
 NvsParameters::NvsParameters()
 {
     esp_err_t err = nvs_flash_init();
