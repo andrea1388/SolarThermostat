@@ -27,7 +27,7 @@ void NvsParameters::load(const char* paramname, char*out)
         ESP_LOGI(TAG, "NvsParameters::load param=%s val=%s",paramname,out);
     } else
     {
-        ESP_LOGI(TAG, "NvsParameters::load param=%s not found",paramname);
+        ESP_LOGI(TAG, "NvsParameters::load param=%s err=%s",paramname,esp_err_to_name(err));
     }
 }
 
@@ -39,6 +39,32 @@ void NvsParameters::load(const char* paramname, uint8_t *out)
         ESP_LOGI(TAG, "NvsParameters::load param=%s val=%d",paramname,*out);
     } else
     {
-        ESP_LOGI(TAG, "NvsParameters::load param=%s not found",paramname);
+        ESP_LOGI(TAG, "NvsParameters::load param=%s err=%s",paramname,esp_err_to_name(err));
     }
+}
+
+esp_err_t NvsParameters::save(const char* paramname, uint8_t val)
+{
+    esp_err_t err = nvs_set_u8(my_handle,paramname,val);
+    if(err==ESP_OK)
+    {
+        ESP_LOGI(TAG, "NvsParameters::save param=%s val=%u",paramname,val);
+    } else
+    {
+        ESP_LOGI(TAG, "NvsParameters::save param=%s err=%s",paramname,esp_err_to_name(err));
+    }
+    return err;
+}
+
+esp_err_t NvsParameters::save(const char* paramname, char *val)
+{
+    esp_err_t err = nvs_set_str(my_handle,paramname,val);
+    if(err==ESP_OK)
+    {
+        ESP_LOGI(TAG, "NvsParameters::save param=%s val=%s",paramname,val);
+    } else
+    {
+        ESP_LOGI(TAG, "NvsParameters::save param=%s err=%s",paramname,esp_err_to_name(err));
+    }
+    return err;
 }
