@@ -15,13 +15,13 @@ void Mqtt::Stop()
 
 int Mqtt::Publish(char *topic,char *msg) {
     //if((xEventGroupGetBits(s_wifi_event_group) & MQTT_CONNECTED_BIT) == false) return;
-    ESP_LOGD(TAG, "Mqtt::Publish topic=%s, msg=%s", topic, msg);
+    ESP_LOGI(TAG, "Mqtt::Publish topic=%s, msg=%s", topic, msg);
     return esp_mqtt_client_publish(client, topic, msg, strlen(msg), 0, 0);
 
 }
 int Mqtt::Subscribe(char *topic)
 {
-    ESP_LOGD(TAG, "Mqtt::Subscribe topic=%s", topic);
+    ESP_LOGI(TAG, "Mqtt::Subscribe topic=%s", topic);
     return esp_mqtt_client_subscribe(client, topic, 0);
 }
 
@@ -29,7 +29,7 @@ void Mqtt::mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t
     Mqtt *obj=(Mqtt *)handler_args;
     if(obj->onEvent!=NULL) (*obj->onEvent)(obj,(esp_mqtt_event_handle_t)event_data);
     /*
-    ESP_LOGD(TAG, "Event dispatched from event loop base=%s, event_id=%d", base, event_id);
+    ESP_LOGI(TAG, "Event dispatched from event loop base=%s, event_id=%d", base, event_id);
     esp_mqtt_event_handle_t event=event_data;
     esp_mqtt_client_handle_t client = event->client;
     // your_context_t *context = event->context;

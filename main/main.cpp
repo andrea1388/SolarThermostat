@@ -22,7 +22,7 @@
 // https://github.com/UncleRus/esp-idf-lib
 // https://esp-idf-lib.readthedocs.io/en/latest/groups/ds18x20.html
 #include <ds18x20.h>
-#include "globals.h"
+#include "otafw.h"
 //#include <iostream>
 
 
@@ -31,6 +31,13 @@
 #include "nvsparameters.hpp"
 #define MAXCMDLEN 200
 #define TOTACheck 24
+#define WIFI_CONNECTED_BIT BIT0
+#define OTA_BIT      BIT1
+#define GPIO_SENS_PANEL GPIO_NUM_21
+#define GPIO_SENS_TANK GPIO_NUM_23
+#define GPIO_PUMP GPIO_NUM_18
+#define GPIO_LED GPIO_NUM_4
+
 
 static const char *TAG = "main";
 
@@ -40,7 +47,7 @@ extern "C" {
 }
 
 // global objects
-//EventGroupHandle_t s_wifi_event_group;
+EventGroupHandle_t event_group;
 float Tp,Tt; // store the last temp read
 int64_t now; // milliseconds from startup
 uint8_t Tread=1; // interval in seconds between temperature readings
@@ -52,10 +59,12 @@ uint8_t DT_ActPump=2; // if Tpanel > Ttank + DT_ActPump, then pump is acted
 char MqttTpTopic[]="SolarThermostat/Tp";
 char MqttTtTopic[]="SolarThermostat/Tt";
 char MqttControlTopic[]="SolarThermostat/control";
-bool otacheck=true;
+char otaurl[]="https://192.168.1.101:8070/SolarThermostat.bin";
+
 Mqtt mqtt;
 WiFi wifi;
 NvsParameters param;
+Otafw otafw;
 ds18x20_addr_t panel_sens[1];
 ds18x20_addr_t tank_sens[1];
 extern const uint8_t ca_crt_start[] asm("_binary_ca_crt_start");
@@ -105,7 +114,9 @@ void WiFiEvent(WiFi* wifi, uint8_t ev)
             wifi->Connect();
             break;
         case WIFI_DISCONNECT: // disconnected
+            xEventGroupClearBits(event_group, WIFI_CONNECTED_BIT);
             ESP_LOGI(TAG,"Disconnected.");
+            
             wifi->Connect();
             gpio_set_level(GPIO_LED,0);
             mqtt.Stop();
@@ -113,10 +124,9 @@ void WiFiEvent(WiFi* wifi, uint8_t ev)
         case WIFI_GOT_IP: // connected
             ESP_LOGI(TAG,"GotIP");
             //ESP_LOGI("Connected. ip=%s",wifi->ip);
-            xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+            xEventGroupSetBits(event_group, WIFI_CONNECTED_BIT);
             gpio_set_level(GPIO_LED,1);
             mqtt.Start();
-            xTaskCreate(&simple_ota_example_task, "ota_example_task", 8192, NULL, 5, NULL);
             break;
 
     }
@@ -155,6 +165,16 @@ void onNewCommand(char *s)
         if(token==NULL) err=1;
         if(err==0) {
             param.save("mqtt_password",token);
+        }
+    }
+
+    // ota url
+    if (strcmp(token,"otaurl")==0 )
+    {
+        token = strtok(NULL, delim);
+        if(token==NULL) err=1;
+        if(err==0) {
+            param.save("otaurl",token);
         }
     }
 
@@ -312,6 +332,19 @@ void ProcessStdin() {
     }
 }
 
+void Ota(void *o) 
+{
+    for (;;) 
+    {
+        if(xEventGroupWaitBits(event_group,WIFI_CONNECTED_BIT | OTA_BIT, pdFALSE, pdTRUE, 1000/portTICK_PERIOD_MS) == (WIFI_CONNECTED_BIT | OTA_BIT)) 
+        {
+            ESP_LOGI(TAG, "Starting OTA update");
+            otafw.Check();        
+            xEventGroupClearBits(event_group, OTA_BIT);
+        }
+    }
+}
+
 
 void app_main(void)
 {
@@ -323,7 +356,7 @@ void app_main(void)
     float Ttlast=0; // previous reading of Tt
 
     //srand((unsigned int)esp_timer_get_time());
-    //s_wifi_event_group = xEventGroupCreate();
+    event_group = xEventGroupCreate();
 
     // setup gpio
     gpio_set_direction(GPIO_PUMP, GPIO_MODE_OUTPUT);
@@ -349,6 +382,9 @@ void app_main(void)
     free(password);
     free(uri);
 
+    param.load("otaurl",otaurl);
+    otafw.Init(otaurl,(const char*)ca_crt_start);
+    xTaskCreate(&Ota, "ota_task", 8192, NULL, 5, NULL);
 
     param.load("Tread",&Tread);
     param.load("Tsendtemps",&Tsendtemps);
@@ -364,33 +400,26 @@ void app_main(void)
     sensor_count = ds18x20_scan_devices(GPIO_SENS_TANK, tank_sens, 1);
     if (sensor_count < 1) ESP_LOGE(TAG,"Tank sensor not detected");
     
-    
-
     /*
         Main cycle:
         periodically (Tpoll) read temperatures Tp and Tt and act the pump if necessary
         periodically (Tsendtemps) send Tp and Tt to MQTT broker, but only if they differ more than a certain amount (deltaT)
         read characters from stdin and respond to commands issued
     */
-
-    
-
     while(true) {
+        // get timer value in milliseconds from boot
         now=(esp_timer_get_time()/1000);
-        if(((now - tlastotacheck)/1440000) > TOTACheck) otacheck=true; // force a ota check every TOTACheck hours
-        ProcessStdin();
-
-        if(otacheck){
-            simple_ota_example_task(NULL);
-            otacheck=false;
-        }       
-        
-        
+        // reschedule a otafw check after TOTACheck hours
+        if(((now - tlastotacheck)/3600000) > TOTACheck) xEventGroupSetBits(event_group,OTA_BIT); // force a ota check every TOTACheck hours
+        // process commands from stdin
+        ProcessStdin();   
+        // read temperatures and process 
         if(((now - tlastread)/1000) > Tread) {
             tlastread=now;
             char msg[10];
             ReadTemperatures();
             ProcessThermostat();
+            // send to mqtt broker if it's the case
             if(((now - tlastsenttemp)/60000) > Tsendtemps) {
                 if( abs(Tp-Tplast) > DT_TxMqtt || abs(Tt-Ttlast) > DT_TxMqtt ) {
                     sprintf(msg,"%.1f",Tp);
@@ -403,10 +432,7 @@ void app_main(void)
                 }
             }
         }
-
-            
         vTaskDelay(1);
-
     }
 }
 
