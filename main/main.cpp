@@ -56,10 +56,11 @@ uint8_t Ton=40; // On time of the pump (usually is the time required to empty th
 uint8_t Toff=40; // Off time
 uint8_t DT_TxMqtt=2; // if one of the two value of temperature red exceeds this delta, then values are transmitted to mqtt
 uint8_t DT_ActPump=2; // if Tpanel > Ttank + DT_ActPump, then pump is acted
-char MqttTpTopic[]="SolarThermostat/Tp";
-char MqttTtTopic[]="SolarThermostat/Tt";
-char MqttControlTopic[]="SolarThermostat/control";
-char otaurl[]="https://192.168.1.101:8070/SolarThermostat.bin";
+char *MqttTpTopic; //  mqtt_tptopic SolarThermostat/Tp
+char *MqttTtTopic; //  mqtt_tttopic SolarThermostat/Tt
+char *MqttControlTopic; // mqtt_cttopic SolarThermostat/control
+char *otaurl; // otaurl https://192.168.1.101:8070/SolarThermostat.bin
+
 
 Mqtt mqtt;
 WiFi wifi;
@@ -82,13 +83,18 @@ void MqttEvent(Mqtt* mqtt, esp_mqtt_event_handle_t event)
         case MQTT_EVENT_DISCONNECTED:
             ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
             break;
+        case MQTT_EVENT_SUBSCRIBED:
+            ESP_LOGI(TAG, "MQTT_EVENT_SUBSCRIBED, msg_id=%d", event->msg_id);
+            break;
+        case MQTT_EVENT_UNSUBSCRIBED:
+            ESP_LOGI(TAG, "MQTT_EVENT_UNSUBSCRIBED, msg_id=%d", event->msg_id);
+            break;
         case MQTT_EVENT_DATA:
-            if(strcmp(event->topic,MqttControlTopic)==0) onNewCommand(event->data);
-            /*
             ESP_LOGI(TAG, "MQTT_EVENT_DATA");
             printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
             printf("DATA=%.*s\r\n", event->data_len, event->data);
-            */
+            //if(strcmp(event->topic,MqttControlTopic)==0) 
+            onNewCommand(event->data);
             break;
         case MQTT_EVENT_ERROR:
             ESP_LOGI(TAG, "MQTT_EVENT_ERROR");
@@ -136,8 +142,9 @@ void onNewCommand(char *s)
 {
     uint8_t err=0;
     const char *delim=" ";
+    ESP_LOGI(TAG,"New command=%s",s);
     char *token = strtok(s, delim);
-    
+    if(!token) return;
     // mqtt uri
     if (strcmp(token,"mqtturi")==0)
     {
@@ -167,6 +174,31 @@ void onNewCommand(char *s)
             param.save("mqtt_password",token);
         }
     }
+    // mqtt_tptopic
+    if (strcmp(token,"mqtt_tptopic")==0 )
+    {
+        token = strtok(NULL, delim);
+        if(token==NULL) err=1;
+        if(err==0) {
+            param.save("mqtt_tptopic",token);
+        }
+    }
+    if (strcmp(token,"mqtt_tttopic")==0 )
+    {
+        token = strtok(NULL, delim);
+        if(token==NULL) err=1;
+        if(err==0) {
+            param.save("mqtt_tttopic",token);
+        }
+    }
+    if (strcmp(token,"mqtt_cttopic")==0 )
+    {
+        token = strtok(NULL, delim);
+        if(token==NULL) err=1;
+        if(err==0) {
+            param.save("mqtt_cttopic",token);
+        }
+    }
 
     // ota url
     if (strcmp(token,"otaurl")==0 )
@@ -175,6 +207,7 @@ void onNewCommand(char *s)
         if(token==NULL) err=1;
         if(err==0) {
             param.save("otaurl",token);
+            esp_restart();
         }
     }
 
@@ -270,6 +303,11 @@ void onNewCommand(char *s)
             }
         }
     }
+    if (strcmp(token,"otacheck")==0)
+    {
+        token = strtok(NULL, delim);
+        if(token==NULL) xEventGroupSetBits(event_group,OTA_BIT);
+    }
 
     if(err==1)
     {
@@ -320,20 +358,26 @@ void ProcessStdin() {
     int c = fgetc(stdin);
     if(c!= EOF) 
     {
-        if(c=='\n') {
+        if(c=='\n') 
+        {
             cmd[cmdlen]=0;
             onNewCommand(cmd);
             cmdlen=0;
         }
-        cmd[cmdlen++]=tolower(c);
-        if(cmdlen==MAXCMDLEN-1) {
-            cmdlen=0;
+        else
+        {
+            cmd[cmdlen++]=c;
+            if(cmdlen==MAXCMDLEN-1) 
+            {
+                cmdlen=0;
+            }
         }
     }
 }
 
 void Ota(void *o) 
 {
+    ESP_LOGI(TAG, "Starting OTA task");
     for (;;) 
     {
         if(xEventGroupWaitBits(event_group,WIFI_CONNECTED_BIT | OTA_BIT, pdFALSE, pdTRUE, 1000/portTICK_PERIOD_MS) == (WIFI_CONNECTED_BIT | OTA_BIT)) 
@@ -348,7 +392,7 @@ void Ota(void *o)
 
 void app_main(void)
 {
-
+    param.Init();
     int64_t tlastread=0;  // time of the last temperatures read
     int64_t tlastsenttemp=0;  // time of the last temperatures send
     int64_t tlastotacheck=0;
@@ -373,18 +417,24 @@ void app_main(void)
     char *username=NULL;
     char *password=NULL;
     char *uri=NULL;
-    param.load("mqtt_username",username);
-    param.load("mqtt_password",password);
-    param.load("mqtt_uri",uri);
+    param.load("mqtt_username",&username);
+    param.load("mqtt_password",&password);
+    param.load("mqtt_uri",&uri);
+    param.load("mqtt_tptopic",&MqttTpTopic);
+    param.load("mqtt_tttopic",&MqttTtTopic);
+    param.load("mqtt_cttopic",&MqttControlTopic);
     mqtt.Init(username,password,uri,(const char*)ca_crt_start);
     mqtt.onEvent=&MqttEvent;
     free(username);
     free(password);
     free(uri);
 
-    param.load("otaurl",otaurl);
-    otafw.Init(otaurl,(const char*)ca_crt_start);
-    xTaskCreate(&Ota, "ota_task", 8192, NULL, 5, NULL);
+    param.load("otaurl",&otaurl);
+    if(otaurl) 
+    {
+        otafw.Init(otaurl,(const char*)ca_crt_start);
+        xTaskCreate(&Ota, "ota_task", 8192, NULL, 5, NULL);
+    }
 
     param.load("Tread",&Tread);
     param.load("Tsendtemps",&Tsendtemps);
@@ -399,7 +449,7 @@ void app_main(void)
     if (sensor_count < 1) ESP_LOGE(TAG,"Panel sensor not detected");
     sensor_count = ds18x20_scan_devices(GPIO_SENS_TANK, tank_sens, 1);
     if (sensor_count < 1) ESP_LOGE(TAG,"Tank sensor not detected");
-    
+    ESP_LOGI(TAG,"Starting. Tread=%u Tsendtemps=%u Ton=%u Toff=%u DT_TxMqtt=%u DT_ActPump=%u",Tread,Tsendtemps,Ton,Toff,DT_TxMqtt,DT_ActPump);
     /*
         Main cycle:
         periodically (Tpoll) read temperatures Tp and Tt and act the pump if necessary

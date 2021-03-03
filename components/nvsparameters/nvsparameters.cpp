@@ -1,7 +1,7 @@
 #include "nvsparameters.hpp"
 #include "esp_log.h"
 static const char* TAG = "nvsparameters";
-NvsParameters::NvsParameters()
+void NvsParameters::Init()
 {
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -16,15 +16,15 @@ NvsParameters::NvsParameters()
 
 }
 
-void NvsParameters::load(const char* paramname, char*out)
+void NvsParameters::load(const char* paramname, char**out)
 {
     size_t required_size;
     esp_err_t err = nvs_get_str(my_handle, paramname, NULL, &required_size);
     if(err==ESP_OK)
     {
-        out =(char*) malloc(required_size);
-        nvs_get_str(my_handle, paramname, out, &required_size);
-        ESP_LOGI(TAG, "NvsParameters::load param=%s val=%s",paramname,out);
+        *out =(char*) malloc(required_size);
+        nvs_get_str(my_handle, paramname, *out, &required_size);
+        ESP_LOGI(TAG, "NvsParameters::load param=%s val=%s",paramname,*out);
     } else
     {
         ESP_LOGI(TAG, "NvsParameters::load param=%s err=%s",paramname,esp_err_to_name(err));

@@ -36,7 +36,7 @@ esp_err_t Otafw::handler(esp_http_client_event_t *evt)
 
 void Otafw::Init(const char* url, const char* cert)
 {
-    esp_http_client_config_t config = {};
+    config = {};
     config.url=url;
     config.cert_pem=cert;
     config.event_handler=&Otafw::handler;
@@ -45,5 +45,10 @@ void Otafw::Init(const char* url, const char* cert)
 
 void Otafw::Check()
 {
-    esp_https_ota(&config);
+    esp_err_t ret = esp_https_ota(&config);
+    if (ret == ESP_OK) {
+        esp_restart();
+    } else {
+        ESP_LOGI(TAG, "Otafw::Check err=%s",esp_err_to_name(ret));
+    }
 }
