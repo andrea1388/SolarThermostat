@@ -37,7 +37,7 @@
 #define GPIO_SENS_TANK GPIO_NUM_23
 #define GPIO_PUMP GPIO_NUM_18
 #define GPIO_LED GPIO_NUM_4
-
+#define VERSION 5
 
 static const char *TAG = "main";
 
@@ -52,14 +52,14 @@ float Tp,Tt; // store the last temp read
 int64_t now; // milliseconds from startup
 uint8_t Tread=1; // interval in seconds between temperature readings
 uint8_t Tsendtemps=1; // interval in minutes between temperature transmissions to mqtt broker
-uint8_t Ton=40; // On time of the pump (usually is the time required to empty the panel) 
-uint8_t Toff=40; // Off time
+uint8_t Ton=40; // On time in seconds of the pump (usually is the time required to empty the panel) 
+uint8_t Toff=40; // Off time in seconds
 uint8_t DT_TxMqtt=2; // if one of the two value of temperature red exceeds this delta, then values are transmitted to mqtt
 uint8_t DT_ActPump=2; // if Tpanel > Ttank + DT_ActPump, then pump is acted
 char *MqttTpTopic; //  mqtt_tptopic SolarThermostat/Tp
 char *MqttTtTopic; //  mqtt_tttopic SolarThermostat/Tt
 char *MqttControlTopic; // mqtt_cttopic SolarThermostat/control
-char *otaurl; // otaurl https://192.168.1.101:8070/SolarThermostat.bin
+char *otaurl; // otaurl https://192.168.1.105:8070/SolarThermostat.bin
 
 
 Mqtt mqtt;
@@ -79,6 +79,9 @@ void MqttEvent(Mqtt* mqtt, esp_mqtt_event_handle_t event)
         case MQTT_EVENT_CONNECTED:
             ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
             mqtt->Subscribe(MqttControlTopic);
+            char msg[6];
+            sprintf(msg,"v=%u",VERSION);
+            mqtt->Publish(MqttControlTopic,msg);
             break;
         case MQTT_EVENT_DISCONNECTED:
             ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
@@ -93,8 +96,14 @@ void MqttEvent(Mqtt* mqtt, esp_mqtt_event_handle_t event)
             ESP_LOGI(TAG, "MQTT_EVENT_DATA");
             printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
             printf("DATA=%.*s\r\n", event->data_len, event->data);
-            //if(strcmp(event->topic,MqttControlTopic)==0) 
-            onNewCommand(event->data);
+            if(strncmp(event->topic,MqttControlTopic,event->topic_len)==0) {
+                char* buf;
+                buf=(char *)malloc(event->data_len+1);
+                strncpy(buf,event->data,event->data_len);
+                buf[event->data_len]=0;
+                onNewCommand(buf);
+                free(buf);
+            }
             break;
         case MQTT_EVENT_ERROR:
             ESP_LOGI(TAG, "MQTT_EVENT_ERROR");
@@ -121,8 +130,6 @@ void WiFiEvent(WiFi* wifi, uint8_t ev)
             break;
         case WIFI_DISCONNECT: // disconnected
             xEventGroupClearBits(event_group, WIFI_CONNECTED_BIT);
-            ESP_LOGI(TAG,"Disconnected.");
-            
             wifi->Connect();
             gpio_set_level(GPIO_LED,0);
             mqtt.Stop();
@@ -152,6 +159,7 @@ void onNewCommand(char *s)
         if(token==NULL) err=1;
         if(err==0) {
             param.save("mqtt_uri",token);
+            return;
         }
     }
 
@@ -162,6 +170,7 @@ void onNewCommand(char *s)
         if(token==NULL) err=1;
         if(err==0) {
             param.save("mqtt_username",token);
+            return;
         }
     }
 
@@ -172,6 +181,7 @@ void onNewCommand(char *s)
         if(token==NULL) err=1;
         if(err==0) {
             param.save("mqtt_password",token);
+            return;
         }
     }
     // mqtt_tptopic
@@ -181,6 +191,7 @@ void onNewCommand(char *s)
         if(token==NULL) err=1;
         if(err==0) {
             param.save("mqtt_tptopic",token);
+            return;
         }
     }
     if (strcmp(token,"mqtt_tttopic")==0 )
@@ -189,6 +200,7 @@ void onNewCommand(char *s)
         if(token==NULL) err=1;
         if(err==0) {
             param.save("mqtt_tttopic",token);
+            return;
         }
     }
     if (strcmp(token,"mqtt_cttopic")==0 )
@@ -197,6 +209,7 @@ void onNewCommand(char *s)
         if(token==NULL) err=1;
         if(err==0) {
             param.save("mqtt_cttopic",token);
+            return;
         }
     }
 
@@ -228,6 +241,7 @@ void onNewCommand(char *s)
             {
                 DT_ActPump=j;
                 param.save("DT_ActPump",DT_ActPump);
+                return;
             } 
         }
     }
@@ -243,6 +257,7 @@ void onNewCommand(char *s)
             {
                 DT_TxMqtt=j;
                 param.save("DT_TxMqtt",DT_TxMqtt);
+                return;
             } 
         }
     }
@@ -258,6 +273,7 @@ void onNewCommand(char *s)
             {
                 Tsendtemps=j;
                 param.save("Tsendtemps",Tsendtemps);
+                return;
             } 
         }
     }
@@ -272,6 +288,7 @@ void onNewCommand(char *s)
             if(err==0) {
                 Tread=j;
                 param.save("Tread",Tread);
+                return;
             }
         }
     }
@@ -286,6 +303,7 @@ void onNewCommand(char *s)
             if(err==0) {
                 Ton=j;
                 param.save("Ton",Ton);
+                return;
             }
         }
     }
@@ -300,23 +318,30 @@ void onNewCommand(char *s)
             if(err==0) {
                 Toff=j;
                 param.save("Toff",Toff);
+                return;
             }
         }
     }
     if (strcmp(token,"otacheck")==0)
     {
         token = strtok(NULL, delim);
-        if(token==NULL) xEventGroupSetBits(event_group,OTA_BIT);
+        if(token==NULL) {
+            xEventGroupSetBits(event_group,OTA_BIT);
+            return;
+        }
     }
 
     if(err==1)
     {
         printf("missing parameter\n");
+        return;
     }
     if(err==2)
     {
         printf("wrong value\n");
+        return;
     }
+    printf("wrong command\n");
 }
 
 void ProcessThermostat() {
@@ -325,8 +350,8 @@ void ProcessThermostat() {
     static uint8_t state=0;
     bool needPump=(Tp > Tt + DT_ActPump); // condition that pump action is needed
     bool condA = ((needPump==true) && (needPumpprec==false) && (state==0)); 
-    bool condB = ((state==0) && (needPump==true) && ((now - tchange) > Toff));
-    bool condC = ((state==1) && ((now - tchange) > Ton));
+    bool condB = ((state==0) && (needPump==true) && (((now - tchange)/1000) >= Toff));
+    bool condC = ((state==1) && (((now - tchange)/1000) >= Ton));
     ESP_LOGI(TAG, "cond np,a,b,c: %u,%u,%u,%u - state:%u",needPump,condA,condB,condC,state);
     if( condA || condB ) {
         state=1;
@@ -449,7 +474,7 @@ void app_main(void)
     if (sensor_count < 1) ESP_LOGE(TAG,"Panel sensor not detected");
     sensor_count = ds18x20_scan_devices(GPIO_SENS_TANK, tank_sens, 1);
     if (sensor_count < 1) ESP_LOGE(TAG,"Tank sensor not detected");
-    ESP_LOGI(TAG,"Starting. Tread=%u Tsendtemps=%u Ton=%u Toff=%u DT_TxMqtt=%u DT_ActPump=%u",Tread,Tsendtemps,Ton,Toff,DT_TxMqtt,DT_ActPump);
+    ESP_LOGI(TAG,"Starting. Version=%u Tread=%u Tsendtemps=%u Ton=%u Toff=%u DT_TxMqtt=%u DT_ActPump=%u",VERSION,Tread,Tsendtemps,Ton,Toff,DT_TxMqtt,DT_ActPump);
     /*
         Main cycle:
         periodically (Tpoll) read temperatures Tp and Tt and act the pump if necessary
@@ -460,18 +485,21 @@ void app_main(void)
         // get timer value in milliseconds from boot
         now=(esp_timer_get_time()/1000);
         // reschedule a otafw check after TOTACheck hours
-        if(((now - tlastotacheck)/3600000) > TOTACheck) xEventGroupSetBits(event_group,OTA_BIT); // force a ota check every TOTACheck hours
+        if(((now - tlastotacheck)/3600000) >= TOTACheck) {
+            xEventGroupSetBits(event_group,OTA_BIT); // force a ota check every TOTACheck hours
+            tlastotacheck=now;
+        }
         // process commands from stdin
         ProcessStdin();   
         // read temperatures and process 
-        if(((now - tlastread)/1000) > Tread) {
+        if(((now - tlastread)/1000) >= Tread) {
             tlastread=now;
             char msg[10];
             ReadTemperatures();
             ProcessThermostat();
             // send to mqtt broker if it's the case
-            if(((now - tlastsenttemp)/60000) > Tsendtemps) {
-                if( abs(Tp-Tplast) > DT_TxMqtt || abs(Tt-Ttlast) > DT_TxMqtt ) {
+            if(((now - tlastsenttemp)/60000) >= Tsendtemps) {
+                if( abs(Tp-Tplast) >= DT_TxMqtt || abs(Tt-Ttlast) >= DT_TxMqtt ) {
                     sprintf(msg,"%.1f",Tp);
                     mqtt.Publish(MqttTpTopic,msg);
                     sprintf(msg,"%.1f",Tt);
