@@ -37,7 +37,7 @@
 #define GPIO_SENS_TANK GPIO_NUM_23
 #define GPIO_PUMP GPIO_NUM_18
 #define GPIO_LED GPIO_NUM_4
-#define VERSION 5
+#define VERSION 6
 
 static const char *TAG = "main";
 
@@ -132,7 +132,7 @@ void WiFiEvent(WiFi* wifi, uint8_t ev)
             xEventGroupClearBits(event_group, WIFI_CONNECTED_BIT);
             wifi->Connect();
             gpio_set_level(GPIO_LED,0);
-            mqtt.Stop();
+            //mqtt.Stop();
             break;
         case WIFI_GOT_IP: // connected
             ESP_LOGI(TAG,"GotIP");
@@ -170,6 +170,29 @@ void onNewCommand(char *s)
         if(token==NULL) err=1;
         if(err==0) {
             param.save("mqtt_username",token);
+            return;
+        }
+    }
+
+
+    // wifi ssid
+    if (strcmp(token,"wifissid")==0)
+    {
+        token = strtok(NULL, delim);
+        if(token==NULL) err=1;
+        if(err==0) {
+            param.save("wifi_ssid",token);
+            return;
+        }
+    }
+
+    // wifi password
+    if (strcmp(token,"wifipassword")==0)
+    {
+        token = strtok(NULL, delim);
+        if(token==NULL) err=1;
+        if(err==0) {
+            param.save("wifi_password",token);
             return;
         }
     }
@@ -352,7 +375,7 @@ void ProcessThermostat() {
     bool condA = ((needPump==true) && (needPumpprec==false) && (state==0)); 
     bool condB = ((state==0) && (needPump==true) && (((now - tchange)/1000) >= Toff));
     bool condC = ((state==1) && (((now - tchange)/1000) >= Ton));
-    ESP_LOGI(TAG, "cond np,a,b,c: %u,%u,%u,%u - state:%u",needPump,condA,condB,condC,state);
+    ESP_LOGD(TAG, "cond np,a,b,c: %u,%u,%u,%u - state:%u",needPump,condA,condB,condC,state);
     if( condA || condB ) {
         state=1;
         gpio_set_level(GPIO_PUMP,1);
@@ -374,7 +397,7 @@ void ReadTemperatures() {
     ds18x20_measure(GPIO_SENS_TANK, tank_sens[0], true);
     ds18x20_read_temperature(GPIO_SENS_TANK, tank_sens[0], &Tt);
     vTaskDelay(1);
-    ESP_LOGI(TAG, "Tp, Tt: %.1f,%.1f",Tp,Tt);
+    ESP_LOGD(TAG, "Tp, Tt: %.1f,%.1f",Tp,Tt);
 }
 
 void ProcessStdin() {
@@ -433,14 +456,20 @@ void app_main(void)
     gpio_set_level(GPIO_LED,0);
     gpio_set_level(GPIO_PUMP,0);
     esp_log_level_set("*", ESP_LOG_INFO);
+    esp_log_level_set(TAG, ESP_LOG_DEBUG);
 
     // configure wifi
+    char *ssid=NULL;
+    char *password=NULL;
+    param.load("wifi_ssid",&ssid);
+    param.load("wifi_password",&password);
     wifi.onEvent=&WiFiEvent;
-    wifi.Start("Mordor","gandalfilgrigio");
-
+    if(ssid) wifi.Start(ssid,password);
+    free(ssid);
+    free(password);
     //configure mqtt
     char *username=NULL;
-    char *password=NULL;
+    password=NULL;
     char *uri=NULL;
     param.load("mqtt_username",&username);
     param.load("mqtt_password",&password);

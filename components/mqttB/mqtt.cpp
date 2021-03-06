@@ -58,7 +58,7 @@ void Mqtt::Init(const char* _username, const char* _password,const char* _uri,co
     mqtt_cfg.password=_password;
     mqtt_cfg.cert_pem=_cert;
     mqtt_cfg.skip_cert_common_name_check=true;
-    mqtt_cfg.disable_auto_reconnect=false;
+    mqtt_cfg.disable_auto_reconnect=true;
     client = esp_mqtt_client_init(&mqtt_cfg);
     if(client==NULL) {
         ESP_LOGE(TAG,"esp_mqtt_client_init fails");
