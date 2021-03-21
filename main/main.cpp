@@ -17,6 +17,7 @@
 #include "esp_spi_flash.h"
 #include "freertos/event_groups.h"
 #include "esp_timer.h"
+#define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
 #include "esp_log.h"
 #include "driver/gpio.h"
 // https://github.com/UncleRus/esp-idf-lib
@@ -37,6 +38,7 @@
 #define GPIO_SENS_TANK GPIO_NUM_23
 #define GPIO_PUMP GPIO_NUM_18
 #define GPIO_LED GPIO_NUM_4
+#define GPIO_BUTTON GPIO_NUM_2
 #define VERSION 6
 
 static const char *TAG = "main";
@@ -60,6 +62,7 @@ char *MqttTpTopic; //  mqtt_tptopic SolarThermostat/Tp
 char *MqttTtTopic; //  mqtt_tttopic SolarThermostat/Tt
 char *MqttControlTopic; // mqtt_cttopic SolarThermostat/control
 char *otaurl; // otaurl https://192.168.1.105:8070/SolarThermostat.bin
+bool forcePumpOn=false; // flag to force pump on
 
 
 Mqtt mqtt;
@@ -253,6 +256,13 @@ void onNewCommand(char *s)
         esp_restart();
     }
 
+    // on
+    if (strcmp(token,"on")==0)
+    {
+        forcePumpOn=true;
+        return;
+    }
+
     if (strcmp(token,"dtpump")==0)
     {
         token = strtok(NULL, delim);
@@ -375,6 +385,7 @@ void ProcessThermostat() {
     bool condA = ((needPump==true) && (needPumpprec==false) && (state==0)); 
     bool condB = ((state==0) && (needPump==true) && (((now - tchange)/1000) >= Toff));
     bool condC = ((state==1) && (((now - tchange)/1000) >= Ton));
+    if(forcePumpOn) {condA = true; forcePumpOn=false;}
     ESP_LOGD(TAG, "cond np,a,b,c: %u,%u,%u,%u - state:%u",needPump,condA,condB,condC,state);
     if( condA || condB ) {
         state=1;
@@ -406,6 +417,7 @@ void ProcessStdin() {
     int c = fgetc(stdin);
     if(c!= EOF) 
     {
+        printf("%c",c);
         if(c=='\n') 
         {
             cmd[cmdlen]=0;
@@ -444,6 +456,7 @@ void app_main(void)
     int64_t tlastread=0;  // time of the last temperatures read
     int64_t tlastsenttemp=0;  // time of the last temperatures send
     int64_t tlastotacheck=0;
+    int64_t tlastpt=0;
     float Tplast=0; // previous reading of Tp
     float Ttlast=0; // previous reading of Tt
 
@@ -453,6 +466,8 @@ void app_main(void)
     // setup gpio
     gpio_set_direction(GPIO_PUMP, GPIO_MODE_OUTPUT);
     gpio_set_direction(GPIO_LED, GPIO_MODE_OUTPUT);
+    gpio_set_direction(GPIO_BUTTON, GPIO_MODE_INPUT);
+    gpio_pullup_en(GPIO_BUTTON);
     gpio_set_level(GPIO_LED,0);
     gpio_set_level(GPIO_PUMP,0);
     esp_log_level_set("*", ESP_LOG_INFO);
@@ -520,12 +535,12 @@ void app_main(void)
         }
         // process commands from stdin
         ProcessStdin();   
+        if(gpio_get_level(GPIO_BUTTON)==1) forcePumpOn=true;
         // read temperatures and process 
         if(((now - tlastread)/1000) >= Tread) {
             tlastread=now;
             char msg[10];
             ReadTemperatures();
-            ProcessThermostat();
             // send to mqtt broker if it's the case
             if(((now - tlastsenttemp)/60000) >= Tsendtemps) {
                 if( abs(Tp-Tplast) >= DT_TxMqtt || abs(Tt-Ttlast) >= DT_TxMqtt ) {
@@ -538,6 +553,10 @@ void app_main(void)
                     tlastsenttemp=now;
                 }
             }
+        }
+        if((now - tlastpt) >= 1000) {
+            ProcessThermostat();
+            tlastpt=now;
         }
         vTaskDelay(1);
     }
