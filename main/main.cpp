@@ -27,9 +27,9 @@
 //#include <iostream>
 
 
-#include "wifi.hpp"
+#include "wifi.h"
 #include "mqtt.h"
-#include "nvsparameters.hpp"
+#include "nvsparameters.h"
 #define MAXCMDLEN 200
 #define TOTACheck 24
 #define WIFI_CONNECTED_BIT BIT0
@@ -39,7 +39,7 @@
 #define GPIO_PUMP GPIO_NUM_18
 #define GPIO_LED GPIO_NUM_4
 #define GPIO_BUTTON GPIO_NUM_2
-#define VERSION 6
+#define VERSION 7
 
 static const char *TAG = "main";
 

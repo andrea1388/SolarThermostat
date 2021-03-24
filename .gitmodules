@@ -1,3 +1,0 @@
-[submodule "components/wifi"]
-	path = components/wifi
-	url = https://github.com/andrea1388/Esp32WiFiComponent.git
