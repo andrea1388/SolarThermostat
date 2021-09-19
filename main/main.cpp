@@ -39,7 +39,7 @@
 #define GPIO_PUMP GPIO_NUM_18
 #define GPIO_LED GPIO_NUM_4
 #define GPIO_BUTTON GPIO_NUM_2
-#define VERSION 7
+#define VERSION 8
 
 static const char *TAG = "main";
 
@@ -61,9 +61,10 @@ uint8_t DT_ActPump=2; // if Tpanel > Ttank + DT_ActPump, then pump is acted
 char *MqttTpTopic; //  mqtt_tptopic SolarThermostat/Tp
 char *MqttTtTopic; //  mqtt_tttopic SolarThermostat/Tt
 char *MqttControlTopic; // mqtt_cttopic SolarThermostat/control
-char *otaurl; // otaurl https://192.168.1.105:8070/SolarThermostat.bin
+char *MqttStatusTopic; // SolarThermostat/status
+char *otaurl; // otaurl https://otaserver:8070/SolarThermostat.bin
 bool forcePumpOn=false; // flag to force pump on
-
+bool disableThermostat=false;
 
 Mqtt mqtt;
 WiFi wifi;
@@ -82,9 +83,10 @@ void MqttEvent(Mqtt* mqtt, esp_mqtt_event_handle_t event)
         case MQTT_EVENT_CONNECTED:
             ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
             mqtt->Subscribe(MqttControlTopic);
-            char msg[6];
-            sprintf(msg,"v=%u",VERSION);
-            mqtt->Publish(MqttControlTopic,msg);
+            if(disableThermostat)
+                mqtt->Publish(MqttStatusTopic,"OFF");
+            else
+                mqtt->Publish(MqttStatusTopic,"ON");
             break;
         case MQTT_EVENT_DISCONNECTED:
             ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
@@ -257,12 +259,23 @@ void onNewCommand(char *s)
     }
 
     // on
-    if (strcmp(token,"on")==0)
+    if (strcmp(token,"pumpon")==0)
     {
         forcePumpOn=true;
         return;
     }
-
+    if (strcmp(token,"ON")==0)
+    {
+        disableThermostat=false;
+        mqtt.Publish(MqttStatusTopic,"ON");
+        return;
+    }
+    if (strcmp(token,"OFF")==0)
+    {
+        disableThermostat=true;
+        mqtt.Publish(MqttStatusTopic,"OFF");
+        return;
+    }
     if (strcmp(token,"dtpump")==0)
     {
         token = strtok(NULL, delim);
@@ -387,26 +400,42 @@ void ProcessThermostat() {
     bool condC = ((state==1) && (((now - tchange)/1000) >= Ton));
     if(forcePumpOn) {condA = true; forcePumpOn=false;}
     ESP_LOGD(TAG, "cond np,a,b,c: %u,%u,%u,%u - state:%u",needPump,condA,condB,condC,state);
-    if( condA || condB ) {
+    if( (condA || condB) && !disableThermostat ) {
         state=1;
         gpio_set_level(GPIO_PUMP,1);
         tchange=now;
+        ESP_LOGD(TAG,"pump on");
     }
-    if( condC ) {
+    if( condC || disableThermostat) {
         state=0;
         gpio_set_level(GPIO_PUMP,0);
         tchange=now;
+        ESP_LOGD(TAG,"pump off");
     }
     needPumpprec=needPump;
 
 }
 
+void SensorError(int sensorpin, int funcerr)
+{
+    if(!disableThermostat) {
+        mqtt.Publish(MqttStatusTopic,"OFF");
+        ESP_LOGI(TAG, "Sens fault %u %u",sensorpin,funcerr);
+        disableThermostat = true;
+    }
+}
+
 void ReadTemperatures() {
-    ds18x20_measure(GPIO_SENS_PANEL, panel_sens[0], true);
-    ds18x20_read_temperature(GPIO_SENS_PANEL, panel_sens[0], &Tp);
+    esp_err_t ret;
+    ret = ds18x20_measure(GPIO_SENS_PANEL, panel_sens[0], true);
+    if(ret != ESP_OK) {SensorError(GPIO_SENS_PANEL,0); return;}
+    ret = ds18x20_read_temperature(GPIO_SENS_PANEL, panel_sens[0], &Tp);
+    if(ret != ESP_OK) {SensorError(GPIO_SENS_PANEL,1); return;}
     vTaskDelay(1);
-    ds18x20_measure(GPIO_SENS_TANK, tank_sens[0], true);
-    ds18x20_read_temperature(GPIO_SENS_TANK, tank_sens[0], &Tt);
+    ret = ds18x20_measure(GPIO_SENS_TANK, tank_sens[0], true);
+    if(ret != ESP_OK) {SensorError(GPIO_SENS_TANK,0); return;}
+    ret = ds18x20_read_temperature(GPIO_SENS_TANK, tank_sens[0], &Tt);
+    if(ret != ESP_OK) {SensorError(GPIO_SENS_TANK,1); return;}
     vTaskDelay(1);
     ESP_LOGD(TAG, "Tp, Tt: %.1f,%.1f",Tp,Tt);
 }
@@ -476,8 +505,8 @@ void app_main(void)
     // configure wifi
     char *ssid=NULL;
     char *password=NULL;
-    param.load("wifi_ssid",&ssid);
-    param.load("wifi_password",&password);
+    param.load("wifi_ssid",&ssid,"ssid");
+    param.load("wifi_password",&password,"password");
     wifi.onEvent=&WiFiEvent;
     if(ssid) wifi.Start(ssid,password);
     free(ssid);
@@ -485,15 +514,20 @@ void app_main(void)
     //configure mqtt
     char *username=NULL;
     password=NULL;
-    char *uri=NULL;
+    char *uri=NULL; // mqtturi mqtts://mqttserver:8883
     param.load("mqtt_username",&username);
     param.load("mqtt_password",&password);
     param.load("mqtt_uri",&uri);
-    param.load("mqtt_tptopic",&MqttTpTopic);
-    param.load("mqtt_tttopic",&MqttTtTopic);
-    param.load("mqtt_cttopic",&MqttControlTopic);
-    mqtt.Init(username,password,uri,(const char*)ca_crt_start);
-    mqtt.onEvent=&MqttEvent;
+    param.load("mqtt_tptopic",&MqttTpTopic,"SolarThermostat/Tp");
+    param.load("mqtt_tttopic",&MqttTtTopic,"SolarThermostat/Tt");
+    param.load("mqtt_cttopic",&MqttControlTopic,"SolarThermostat/control");
+    param.load("mqtt_sttopic",&MqttStatusTopic,"SolarThermostat/status");
+    if(uri) 
+    {
+        mqtt.Init(username,password,uri,(const char*)ca_crt_start);
+        mqtt.onEvent=&MqttEvent;
+        ESP_LOGI(TAG,"Mqtt started");
+    }
     free(username);
     free(password);
     free(uri);
@@ -503,6 +537,7 @@ void app_main(void)
     {
         otafw.Init(otaurl,(const char*)ca_crt_start);
         xTaskCreate(&Ota, "ota_task", 8192, NULL, 5, NULL);
+        ESP_LOGI(TAG,"Ota started");
     }
 
     param.load("Tread",&Tread);
@@ -514,10 +549,34 @@ void app_main(void)
 
     
     // configure ds18b20s
-    int sensor_count = ds18x20_scan_devices(GPIO_SENS_PANEL, panel_sens, 1);
-    if (sensor_count < 1) ESP_LOGE(TAG,"Panel sensor not detected");
-    sensor_count = ds18x20_scan_devices(GPIO_SENS_TANK, tank_sens, 1);
-    if (sensor_count < 1) ESP_LOGE(TAG,"Tank sensor not detected");
+    size_t sensor_count;
+    esp_err_t err;
+    err=ds18x20_scan_devices(GPIO_SENS_PANEL, panel_sens,1, &sensor_count);
+    if(err != ESP_OK)
+    {
+        ESP_LOGE(TAG,"Panel sensor scan failed");
+        disableThermostat=true;
+    } else
+    {
+        if (sensor_count < 1) {
+            ESP_LOGE(TAG,"Panel sensor not detected");
+            disableThermostat=true;
+        }
+    }
+    
+    err=ds18x20_scan_devices(GPIO_SENS_TANK, tank_sens,1, &sensor_count);
+    if(err != ESP_OK)
+    {
+        ESP_LOGE(TAG,"Tank sensor scan failed");
+        disableThermostat=true;
+    } else
+    {
+        if (sensor_count < 1) {
+            ESP_LOGE(TAG,"Tank sensor not detected");
+            disableThermostat=true;
+        }
+    }
+
     ESP_LOGI(TAG,"Starting. Version=%u Tread=%u Tsendtemps=%u Ton=%u Toff=%u DT_TxMqtt=%u DT_ActPump=%u",VERSION,Tread,Tsendtemps,Ton,Toff,DT_TxMqtt,DT_ActPump);
     /*
         Main cycle:
@@ -554,7 +613,7 @@ void app_main(void)
                 }
             }
         }
-        if((now - tlastpt) >= 1000) {
+        if( (now - tlastpt) >= 1000) {
             ProcessThermostat();
             tlastpt=now;
         }

@@ -1,1 +1,6 @@
 mqtt cli non riparte dopo wifi disco
+gestire errori sensori
+    se errore deve mettere off il master switch
+
+gestione di un cmd master switch
+topic differenti per cmd e stato
