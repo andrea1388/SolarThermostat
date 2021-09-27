@@ -1,12 +1,3 @@
-/* Hello World Example
-
-   This example code is in the Public Domain (or CC0 licensed, at your option.)
-
-   Unless required by applicable law or agreed to in writing, this
-   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-   CONDITIONS OF ANY KIND, either express or implied.
-*/
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -50,7 +41,7 @@ extern "C" {
 
 // global objects
 EventGroupHandle_t event_group;
-float Tp,Tt; // store the last temp read
+float Tp=0,Tt=0; // store the last temp read
 int64_t now; // milliseconds from startup
 uint8_t Tread=1; // interval in seconds between temperature readings
 uint8_t Tsendtemps=1; // interval in minutes between temperature transmissions to mqtt broker
@@ -420,7 +411,10 @@ void SensorError(int sensorpin, int funcerr)
 {
     if(!disableThermostat) {
         mqtt.Publish(MqttStatusTopic,"OFF");
-        ESP_LOGI(TAG, "Sens fault %u %u",sensorpin,funcerr);
+        char msg[50];
+        sprintf(msg,"Sens fault %u %u",sensorpin,funcerr);
+        ESP_LOGI(TAG, "%s", msg);
+        mqtt.Publish(MqttStatusTopic,msg);
         disableThermostat = true;
     }
 }
@@ -555,12 +549,12 @@ void app_main(void)
     if(err != ESP_OK)
     {
         ESP_LOGE(TAG,"Panel sensor scan failed");
-        disableThermostat=true;
+        SensorError(GPIO_SENS_PANEL,2);
     } else
     {
         if (sensor_count < 1) {
             ESP_LOGE(TAG,"Panel sensor not detected");
-            disableThermostat=true;
+            SensorError(GPIO_SENS_PANEL,3);
         }
     }
     
@@ -568,12 +562,12 @@ void app_main(void)
     if(err != ESP_OK)
     {
         ESP_LOGE(TAG,"Tank sensor scan failed");
-        disableThermostat=true;
+        SensorError(GPIO_SENS_TANK,2);
     } else
     {
         if (sensor_count < 1) {
             ESP_LOGE(TAG,"Tank sensor not detected");
-            disableThermostat=true;
+            SensorError(GPIO_SENS_TANK,3);
         }
     }
 
