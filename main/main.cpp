@@ -27,10 +27,11 @@
 #define OTA_BIT      BIT1
 #define GPIO_SENS_PANEL GPIO_NUM_21
 #define GPIO_SENS_TANK GPIO_NUM_23
+#define GPIO_SENS_FP GPIO_NUM_23*************
 #define GPIO_PUMP GPIO_NUM_18
 #define GPIO_LED GPIO_NUM_4
 #define GPIO_BUTTON GPIO_NUM_2
-#define VERSION 9
+#define VERSION 10
 
 static const char *TAG = "main";
 
@@ -386,6 +387,8 @@ void ProcessThermostat() {
     static bool needPumpprec=false;
     static uint8_t state=0;
     bool needPump=(Tp > Tt + DT_ActPump); // condition that pump action is needed
+    bool needFpPump=(Tf > 70); // condition that pump action is needed
+    bool needTankPump=(heatpump==true && Tt>40) || (fluxsens==true && Tt>20); // condition that pump action is needed
     bool condA = ((needPump==true) && (needPumpprec==false) && (state==0)); 
     bool condB = ((state==0) && (needPump==true) && (((now - tchange)/1000) >= Toff));
     bool condC = ((state==1) && (((now - tchange)/1000) >= Ton));
@@ -422,19 +425,29 @@ void SensorError(int sensorpin, int funcerr)
 bool ReadTemperatures() {
     esp_err_t ret;
     float ttp,ttt;
+    
     ret = ds18x20_measure(GPIO_SENS_PANEL, panel_sens[0], true);
     if(ret != ESP_OK) return false;
     ret = ds18x20_read_temperature(GPIO_SENS_PANEL, panel_sens[0], &ttp);
     if(ret != ESP_OK) return false;
     vTaskDelay(1);
+
     ret = ds18x20_measure(GPIO_SENS_TANK, tank_sens[0], true);
     if(ret != ESP_OK) return false;
     ret = ds18x20_read_temperature(GPIO_SENS_TANK, tank_sens[0], &ttt);
     if(ret != ESP_OK) return false;
     vTaskDelay(1);
+    
+    ret = ds18x20_measure(GPIO_FP_SENS, fp_sens[0], true);
+    if(ret != ESP_OK) return false;
+    ret = ds18x20_read_temperature(GPIO_FP_SENS, fp_sens[0], &ttt);
+    if(ret != ESP_OK) return false;
+    vTaskDelay(1);
+    
     Tp=ttp;
     Tt=ttt;
-    ESP_LOGD(TAG, "Tp, Tt: %.1f,%.1f",Tp,Tt);
+    Tf=ttt;
+    ESP_LOGD(TAG, "Tp, Tt, Tf: %.1f,%.1f,%.1f",Tp,Tt,Tf);
     return true;
 }
 
@@ -492,11 +505,17 @@ void app_main(void)
 
     // setup gpio
     gpio_set_direction(GPIO_PUMP, GPIO_MODE_OUTPUT);
+    gpio_set_direction(GPIO_FP_PUMP, GPIO_MODE_OUTPUT);
+    gpio_set_direction(GPIO_TANK_PUMP, GPIO_MODE_OUTPUT);
     gpio_set_direction(GPIO_LED, GPIO_MODE_OUTPUT);
     gpio_set_direction(GPIO_BUTTON, GPIO_MODE_INPUT);
     gpio_pullup_en(GPIO_BUTTON);
+    gpio_pullup_en(GPIO_FLUXSENS);
+    gpio_pullup_en(GPIO_HEATPUMP);
     gpio_set_level(GPIO_LED,0);
     gpio_set_level(GPIO_PUMP,0);
+    gpio_set_level(GPIO_TANK_PUMP,0);
+    gpio_set_level(GPIO_FP_PUMP,0);
     esp_log_level_set("*", ESP_LOG_INFO);
     esp_log_level_set(TAG, ESP_LOG_DEBUG);
 
@@ -575,6 +594,19 @@ void app_main(void)
         }
     }
 
+    err=ds18x20_scan_devices(GPIO_FP_SENS, fp_sens,1, &sensor_count);
+    if(err != ESP_OK)
+    {
+        ESP_LOGE(TAG,"Tank sensor scan failed");
+        SensorError(GPIO_SENS_TANK,2);
+    } else
+    {
+        if (sensor_count < 1) {
+            ESP_LOGE(TAG,"FP sensor not detected");
+            SensorError(GPIO_SENS_TANK,4);
+        }
+    }
+
     ESP_LOGI(TAG,"Starting. Version=%u Tread=%u Tsendtemps=%u Ton=%u Toff=%u DT_TxMqtt=%u DT_ActPump=%u",VERSION,Tread,Tsendtemps,Ton,Toff,DT_TxMqtt,DT_ActPump);
     /*
         Main cycle:
@@ -601,13 +633,16 @@ void app_main(void)
             {
                 // send to mqtt broker if it's the case
                 if(((now - tlastsenttemp)/60000) >= Tsendtemps) {
-                    if( abs(Tp-Tplast) >= DT_TxMqtt || abs(Tt-Ttlast) >= DT_TxMqtt ) {
+                    if( abs(Tp-Tplast) >= DT_TxMqtt || abs(Tt-Ttlast) >= DT_TxMqtt || abs(Tf-Tflast) >= DT_TxMqtt) {
                         sprintf(msg,"%.1f",Tp);
                         mqtt.Publish(MqttTpTopic,msg);
                         sprintf(msg,"%.1f",Tt);
                         mqtt.Publish(MqttTtTopic,msg);
+                        sprintf(msg,"%.1f",Tf);
+                        mqtt.Publish(MqttTfTopic,msg);
                         Tplast=Tp;
                         Ttlast=Tt;
+                        Tflast=Tf;
                         tlastsenttemp=now;
                     }
                 }
