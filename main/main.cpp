@@ -30,7 +30,7 @@
 #define GPIO_PUMP GPIO_NUM_18
 #define GPIO_LED GPIO_NUM_4
 #define GPIO_BUTTON GPIO_NUM_2
-#define VERSION 8
+#define VERSION 9
 
 static const char *TAG = "main";
 
@@ -419,19 +419,23 @@ void SensorError(int sensorpin, int funcerr)
     }
 }
 
-void ReadTemperatures() {
+bool ReadTemperatures() {
     esp_err_t ret;
+    float ttp,ttt;
     ret = ds18x20_measure(GPIO_SENS_PANEL, panel_sens[0], true);
-    if(ret != ESP_OK) {SensorError(GPIO_SENS_PANEL,0); return;}
-    ret = ds18x20_read_temperature(GPIO_SENS_PANEL, panel_sens[0], &Tp);
-    if(ret != ESP_OK) {SensorError(GPIO_SENS_PANEL,1); return;}
+    if(ret != ESP_OK) return false;
+    ret = ds18x20_read_temperature(GPIO_SENS_PANEL, panel_sens[0], &ttp);
+    if(ret != ESP_OK) return false;
     vTaskDelay(1);
     ret = ds18x20_measure(GPIO_SENS_TANK, tank_sens[0], true);
-    if(ret != ESP_OK) {SensorError(GPIO_SENS_TANK,0); return;}
-    ret = ds18x20_read_temperature(GPIO_SENS_TANK, tank_sens[0], &Tt);
-    if(ret != ESP_OK) {SensorError(GPIO_SENS_TANK,1); return;}
+    if(ret != ESP_OK) return false;
+    ret = ds18x20_read_temperature(GPIO_SENS_TANK, tank_sens[0], &ttt);
+    if(ret != ESP_OK) return false;
     vTaskDelay(1);
+    Tp=ttp;
+    Tt=ttt;
     ESP_LOGD(TAG, "Tp, Tt: %.1f,%.1f",Tp,Tt);
+    return true;
 }
 
 void ProcessStdin() {
@@ -593,17 +597,19 @@ void app_main(void)
         if(((now - tlastread)/1000) >= Tread) {
             tlastread=now;
             char msg[10];
-            ReadTemperatures();
-            // send to mqtt broker if it's the case
-            if(((now - tlastsenttemp)/60000) >= Tsendtemps) {
-                if( abs(Tp-Tplast) >= DT_TxMqtt || abs(Tt-Ttlast) >= DT_TxMqtt ) {
-                    sprintf(msg,"%.1f",Tp);
-                    mqtt.Publish(MqttTpTopic,msg);
-                    sprintf(msg,"%.1f",Tt);
-                    mqtt.Publish(MqttTtTopic,msg);
-                    Tplast=Tp;
-                    Ttlast=Tt;
-                    tlastsenttemp=now;
+            if(ReadTemperatures())
+            {
+                // send to mqtt broker if it's the case
+                if(((now - tlastsenttemp)/60000) >= Tsendtemps) {
+                    if( abs(Tp-Tplast) >= DT_TxMqtt || abs(Tt-Ttlast) >= DT_TxMqtt ) {
+                        sprintf(msg,"%.1f",Tp);
+                        mqtt.Publish(MqttTpTopic,msg);
+                        sprintf(msg,"%.1f",Tt);
+                        mqtt.Publish(MqttTtTopic,msg);
+                        Tplast=Tp;
+                        Ttlast=Tt;
+                        tlastsenttemp=now;
+                    }
                 }
             }
         }
