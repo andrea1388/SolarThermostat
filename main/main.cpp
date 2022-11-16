@@ -44,7 +44,7 @@ extern "C" {
 EventGroupHandle_t event_group;
 float Tp=0,Tt=0; // store the last temp read
 int64_t now; // milliseconds from startup
-uint8_t Tread=1; // interval in seconds between temperature readings
+uint8_t Tread=5; // interval in seconds between temperature readings
 uint8_t Tsendtemps=1; // interval in minutes between temperature transmissions to mqtt broker
 uint8_t Ton=40; // On time in seconds of the pump (usually is the time required to empty the panel) 
 uint8_t Toff=40; // Off time in seconds
@@ -382,7 +382,53 @@ void onNewCommand(char *s)
     printf("wrong command\n");
 }
 
-void ProcessThermostat() {
+void ProcessThermostatSolar() {
+    static int64_t tchange=0;
+    static bool needPumpprec=false;
+    static uint8_t state=0;
+    bool needPump=(Tp > Tt + DT_ActPump); // condition that pump action is needed
+    bool condA = ((needPump==true) && (needPumpprec==false) && (state==0)); 
+    bool condB = ((state==0) && (needPump==true) && (((now - tchange)/1000) >= Toff));
+    bool condC = ((state==1) && (((now - tchange)/1000) >= Ton));
+    if(forcePumpOn) {condA = true; forcePumpOn=false;}
+    ESP_LOGD(TAG, "cond np,a,b,c: %u,%u,%u,%u - state:%u",needPump,condA,condB,condC,state);
+    if( (condA || condB) && !disableThermostat ) {
+        state=1;
+        gpio_set_level(GPIO_PUMP,1);
+        tchange=now;
+        ESP_LOGD(TAG,"pump on");
+    }
+    if( condC || disableThermostat) {
+        state=0;
+        gpio_set_level(GPIO_PUMP,0);
+        tchange=now;
+        ESP_LOGD(TAG,"pump off");
+    }
+    needPumpprec=needPump;
+
+}
+void ProcessThermostatFirePlace() {
+    static uint8_t state=-1;
+    static int64_t tchange=0;
+
+    bool conditionOff =  (((now - tchange)/1000) >= Ton);
+    if(state== -1 || (state==1 && conditionOff)) {
+        state=0;
+        gpio_set_level(GPIO_FPPUMP,0);
+    }
+
+    bool conditionOn=(Tf>Tt+30) || (Tf>90); // condition that pump action is needed
+    if(state==0 && conditionOn) {
+        state=1;
+        tchange=now;
+        gpio_set_level(GPIO_FPPUMP,1);
+    }
+
+    //ESP_LOGD(TAG, "cond np,a,b,c: %u,%u,%u,%u - state:%u",needPump,condA,condB,condC,state);
+
+}
+
+void ProcessThermostatTank() {
     static int64_t tchange=0;
     static bool needPumpprec=false;
     static uint8_t state=0;
@@ -409,7 +455,6 @@ void ProcessThermostat() {
     needPumpprec=needPump;
 
 }
-
 void SensorError(int sensorpin, int funcerr)
 {
     if(!disableThermostat) {
@@ -423,30 +468,22 @@ void SensorError(int sensorpin, int funcerr)
 }
 
 bool ReadTemperatures() {
-    esp_err_t ret;
-    float ttp,ttt;
+    float ttmp;
     
-    ret = ds18x20_measure(GPIO_SENS_PANEL, panel_sens[0], true);
-    if(ret != ESP_OK) return false;
-    ret = ds18x20_read_temperature(GPIO_SENS_PANEL, panel_sens[0], &ttp);
-    if(ret != ESP_OK) return false;
+    if(ds18s20_measure_and_read(GPIO_SENS_PANEL, DS18X20_ANY, &ttmp))
+        Tp=ttmp;
     vTaskDelay(1);
 
-    ret = ds18x20_measure(GPIO_SENS_TANK, tank_sens[0], true);
-    if(ret != ESP_OK) return false;
-    ret = ds18x20_read_temperature(GPIO_SENS_TANK, tank_sens[0], &ttt);
-    if(ret != ESP_OK) return false;
+
+    if(ds18s20_measure_and_read(GPIO_SENS_TANK, DS18X20_ANY, &ttmp)
+        Tt=ttmp;
     vTaskDelay(1);
     
-    ret = ds18x20_measure(GPIO_FP_SENS, fp_sens[0], true);
-    if(ret != ESP_OK) return false;
-    ret = ds18x20_read_temperature(GPIO_FP_SENS, fp_sens[0], &ttt);
-    if(ret != ESP_OK) return false;
+    if(ds18s20_measure_and_read(GPIO_FP_SENS, DS18X20_ANY, &ttmp))
+        Tf=ttmp;
     vTaskDelay(1);
-    
-    Tp=ttp;
-    Tt=ttt;
-    Tf=ttt;
+
+
     ESP_LOGD(TAG, "Tp, Tt, Tf: %.1f,%.1f,%.1f",Tp,Tt,Tf);
     return true;
 }
@@ -566,7 +603,7 @@ void app_main(void)
 
     
     // configure ds18b20s
-    size_t sensor_count;
+/*     size_t sensor_count;
     esp_err_t err;
     err=ds18x20_scan_devices(GPIO_SENS_PANEL, panel_sens,1, &sensor_count);
     if(err != ESP_OK)
@@ -607,6 +644,7 @@ void app_main(void)
         }
     }
 
+ */    
     ESP_LOGI(TAG,"Starting. Version=%u Tread=%u Tsendtemps=%u Ton=%u Toff=%u DT_TxMqtt=%u DT_ActPump=%u",VERSION,Tread,Tsendtemps,Ton,Toff,DT_TxMqtt,DT_ActPump);
     /*
         Main cycle:
@@ -625,31 +663,34 @@ void app_main(void)
         // process commands from stdin
         ProcessStdin();   
         if(gpio_get_level(GPIO_BUTTON)==1) forcePumpOn=true;
-        // read temperatures and process 
-        if(((now - tlastread)/1000) >= Tread) {
+        // read temperatures every Tread 
+        if((now - tlastread) >= Tread) {
             tlastread=now;
             char msg[10];
-            if(ReadTemperatures())
-            {
-                // send to mqtt broker if it's the case
-                if(((now - tlastsenttemp)/60000) >= Tsendtemps) {
-                    if( abs(Tp-Tplast) >= DT_TxMqtt || abs(Tt-Ttlast) >= DT_TxMqtt || abs(Tf-Tflast) >= DT_TxMqtt) {
-                        sprintf(msg,"%.1f",Tp);
-                        mqtt.Publish(MqttTpTopic,msg);
-                        sprintf(msg,"%.1f",Tt);
-                        mqtt.Publish(MqttTtTopic,msg);
-                        sprintf(msg,"%.1f",Tf);
-                        mqtt.Publish(MqttTfTopic,msg);
-                        Tplast=Tp;
-                        Ttlast=Tt;
-                        Tflast=Tf;
-                        tlastsenttemp=now;
-                    }
+            ReadTemperatures();
+        
+            // send to mqtt broker if it's the case
+            if(((now - tlastsenttemp)/60000) >= Tsendtemps) {
+                if( abs(Tp-Tplast) >= DT_TxMqtt || abs(Tt-Ttlast) >= DT_TxMqtt || abs(Tf-Tflast) >= DT_TxMqtt) {
+                    sprintf(msg,"%.1f",Tp);
+                    mqtt.Publish(MqttTpTopic,msg);
+                    sprintf(msg,"%.1f",Tt);
+                    mqtt.Publish(MqttTtTopic,msg);
+                    sprintf(msg,"%.1f",Tf);
+                    mqtt.Publish(MqttTfTopic,msg);
+                    Tplast=Tp;
+                    Ttlast=Tt;
+                    Tflast=Tf;
+                    tlastsenttemp=now;
                 }
             }
+
         }
+        // process thermostat every second
         if( (now - tlastpt) >= 1000) {
-            ProcessThermostat();
+            ProcessThermostatSolar();
+            ProcessThermostatFirePlace();
+            ProcessThermostatTank();
             tlastpt=now;
         }
         vTaskDelay(1);

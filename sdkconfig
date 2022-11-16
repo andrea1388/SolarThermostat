@@ -1222,6 +1222,12 @@ CONFIG_BUTTON_AUTOREPEAT_INTERVAL=250
 # end of Button
 
 #
+# DPS310 driver
+#
+CONFIG_DPS310_PROTOCOL_USING_I2C=y
+# end of DPS310 driver
+
+#
 # Rotary encoders
 #
 CONFIG_RE_MAX=1
