@@ -48,6 +48,7 @@ uint8_t Tread=5; // interval in seconds between temperature readings
 uint8_t Tsendtemps=1; // interval in minutes between temperature transmissions to mqtt broker
 uint8_t Ton=40; // On time in seconds of the pump (usually is the time required to empty the panel) 
 uint8_t Toff=40; // Off time in seconds
+uint8_t SecFpPumpOn=30; // num of seconds fp pump must stays on
 uint8_t DT_TxMqtt=2; // if one of the two value of temperature red exceeds this delta, then values are transmitted to mqtt
 uint8_t DT_ActPump=2; // if Tpanel > Ttank + DT_ActPump, then pump is acted
 char *MqttTpTopic; //  mqtt_tptopic SolarThermostat/Tp
@@ -67,6 +68,7 @@ ds18x20_addr_t tank_sens[1];
 extern const uint8_t ca_crt_start[] asm("_binary_ca_crt_start");
 
 void onNewCommand(char *s);
+char* toLower(char* s);
 
 void MqttEvent(Mqtt* mqtt, esp_mqtt_event_handle_t event)
 {
@@ -147,7 +149,7 @@ void onNewCommand(char *s)
     uint8_t err=0;
     const char *delim=" ";
     ESP_LOGI(TAG,"New command=%s",s);
-    char *token = strtok(s, delim);
+    char *token = toLower(strtok(s, delim));
     if(!token) return;
     // mqtt uri
     if (strcmp(token,"mqtturi")==0)
@@ -256,13 +258,13 @@ void onNewCommand(char *s)
         forcePumpOn=true;
         return;
     }
-    if (strcmp(token,"ON")==0)
+    if (strcmp(token,"on")==0)
     {
         disableThermostat=false;
         mqtt.Publish(MqttStatusTopic,"ON");
         return;
     }
-    if (strcmp(token,"OFF")==0)
+    if (strcmp(token,"off")==0)
     {
         disableThermostat=true;
         mqtt.Publish(MqttStatusTopic,"OFF");
@@ -326,6 +328,23 @@ void onNewCommand(char *s)
             if(err==0) {
                 Tread=j;
                 param.save("Tread",Tread);
+                return;
+            }
+        }
+    }
+
+
+
+    if (strcmp(token,"secfppumpon")==0)
+    {
+        token = strtok(NULL, delim);
+        if(token==NULL) err=1;
+        if(err==0) {
+            int j=atoi(token);
+            if(j<1 || j>256) err=2;
+            if(err==0) {
+                SecFpPumpOn=j;
+                param.save("SecFpPumpOn",j);
                 return;
             }
         }
@@ -411,13 +430,13 @@ void ProcessThermostatFirePlace() {
     static uint8_t state=-1;
     static int64_t tchange=0;
 
-    bool conditionOff =  (((now - tchange)/1000) >= Ton);
+    bool conditionOff =  (((now - tchange)/1000) >= SecFpPumpOn);
     if(state== -1 || (state==1 && conditionOff)) {
         state=0;
         gpio_set_level(GPIO_FPPUMP,0);
     }
 
-    bool conditionOn=(Tf>Tt+30) || (Tf>90); // condition that pump action is needed
+    bool conditionOn=(Tf>ThTFp); // threshold temp fireplace
     if(state==0 && conditionOn) {
         state=1;
         tchange=now;
@@ -427,34 +446,23 @@ void ProcessThermostatFirePlace() {
     //ESP_LOGD(TAG, "cond np,a,b,c: %u,%u,%u,%u - state:%u",needPump,condA,condB,condC,state);
 
 }
-
 void ProcessThermostatTank() {
+    static uint8_t state=-1;
     static int64_t tchange=0;
-    static bool needPumpprec=false;
-    static uint8_t state=0;
-    bool needPump=(Tp > Tt + DT_ActPump); // condition that pump action is needed
-    bool needFpPump=(Tf > 70); // condition that pump action is needed
-    bool needTankPump=(heatpump==true && Tt>40) || (fluxsens==true && Tt>20); // condition that pump action is needed
-    bool condA = ((needPump==true) && (needPumpprec==false) && (state==0)); 
-    bool condB = ((state==0) && (needPump==true) && (((now - tchange)/1000) >= Toff));
-    bool condC = ((state==1) && (((now - tchange)/1000) >= Ton));
-    if(forcePumpOn) {condA = true; forcePumpOn=false;}
-    ESP_LOGD(TAG, "cond np,a,b,c: %u,%u,%u,%u - state:%u",needPump,condA,condB,condC,state);
-    if( (condA || condB) && !disableThermostat ) {
-        state=1;
-        gpio_set_level(GPIO_PUMP,1);
-        tchange=now;
-        ESP_LOGD(TAG,"pump on");
-    }
-    if( condC || disableThermostat) {
-        state=0;
-        gpio_set_level(GPIO_PUMP,0);
-        tchange=now;
-        ESP_LOGD(TAG,"pump off");
-    }
-    needPumpprec=needPump;
 
+    if(state== -1 || (state==1 && !conditionOn)) {
+        state=0;
+        gpio_set_level(GPIO_FPPUMP,0);
+    }
+
+    bool conditionOn=((Tt>MinTankTempToUseForWaterHeathing) && (FluxSensor==1 || SensPump==1)); // threshold temp fireplace
+    if(state==0 && conditionOn) {
+        state=1;
+        tchange=now;
+        gpio_set_level(GPIO_FPPUMP,1);
+    }
 }
+
 void SensorError(int sensorpin, int funcerr)
 {
     if(!disableThermostat) {
@@ -600,6 +608,8 @@ void app_main(void)
     param.load("Toff",&Toff);
     param.load("DT_TxMqtt",&DT_TxMqtt);
     param.load("DT_ActPump",&DT_ActPump);
+    param.load("SecFpPumpOn",&SecFpPumpOn);
+
 
     
     // configure ds18b20s
@@ -699,3 +709,8 @@ void app_main(void)
 
 
 
+
+char* toLower(char* s) {
+  for(char *p=s; *p; p++) *p=tolower(*p);
+  return s;
+}
