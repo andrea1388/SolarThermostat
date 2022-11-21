@@ -9,3 +9,4 @@ components/Esp32WiFiComponent
 components/Esp32MqttComponent
 components/Esp32NvsComponent
 certs/SolarThermostat.bin
+.DS_Store

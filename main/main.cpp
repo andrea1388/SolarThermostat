@@ -50,7 +50,7 @@ extern "C" {
 
 // global objects
 EventGroupHandle_t event_group;
-float Tp=0,Tt=0; // store the last temp read
+float Tp=0,Tt=0,Tf=0; // store the last temp read
 int64_t now; // milliseconds from startup
 uint8_t Tread=5; // interval in seconds between temperature readings
 uint8_t Tsendtemps=1; // interval in minutes between temperature transmissions to mqtt broker
@@ -64,8 +64,10 @@ bool BoilerPump; // true if boiler pump is on
 bool FluxSensor; // true if water flux is detected
 char *MqttTpTopic; //  mqtt_tptopic SolarThermostat/Tp
 char *MqttTtTopic; //  mqtt_tttopic SolarThermostat/Tt
+char *MqttTfTopic; // mqtt_tttopic SolarThermostat/Tf
 char *MqttControlTopic; // mqtt_cttopic SolarThermostat/control
 char *MqttStatusTopic; // SolarThermostat/status
+char *MqttInfoTopic; // SolarThermostat/status
 char *otaurl; // otaurl https://otaserver:8070/SolarThermostat.bin
 bool forcePumpOn=false; // flag to force pump on
 bool disableThermostat=false;
@@ -80,6 +82,7 @@ extern const uint8_t ca_crt_start[] asm("_binary_ca_crt_start");
 
 void onNewCommand(char *s);
 char* toLower(char* s);
+void publishStatus();
 
 void MqttEvent(Mqtt* mqtt, esp_mqtt_event_handle_t event)
 {
@@ -438,7 +441,7 @@ void ProcessThermostatSolar() {
 
 }
 void ProcessThermostatFirePlace() {
-    static uint8_t state=-1;
+    static int8_t state=-1;
     static int64_t tchange=0;
 
     bool conditionOff =  (((now - tchange)/1000) >= SecFpPumpOn);
@@ -458,7 +461,7 @@ void ProcessThermostatFirePlace() {
 
 }
 void ProcessThermostatTank() {
-    static uint8_t state=-1;
+    static int8_t state=-1;
     static int64_t tchange=0;
 
     if(state== -1 || (state==1 && !conditionOn)) {
@@ -555,6 +558,7 @@ void app_main(void)
     int64_t tlastpt=0;
     float Tplast=0; // previous reading of Tp
     float Ttlast=0; // previous reading of Tt
+    float Tflast=0; // previous reading of Tf
 
     //srand((unsigned int)esp_timer_get_time());
     event_group = xEventGroupCreate();
@@ -570,12 +574,8 @@ void app_main(void)
     
 
     gpio_pullup_en(GPIO_BUTTON);
-    gpio_pullup_en(GPIO_FLUXSENS);
-    gpio_pullup_en(GPIO_HEATPUMP);
     gpio_set_level(GPIO_LED,0);
     gpio_set_level(GPIO_PUMP,0);
-    gpio_set_level(GPIO_TANK_PUMP,0);
-    gpio_set_level(GPIO_FP_PUMP,0);
     esp_log_level_set("*", ESP_LOG_INFO);
     esp_log_level_set(TAG, ESP_LOG_DEBUG);
 
@@ -597,8 +597,11 @@ void app_main(void)
     param.load("mqtt_uri",&uri);
     param.load("mqtt_tptopic",&MqttTpTopic,"SolarThermostat/Tp");
     param.load("mqtt_tttopic",&MqttTtTopic,"SolarThermostat/Tt");
+    param.load("mqtt_tftopic",&MqttTfTopic,"SolarThermostat/Tf");
     param.load("mqtt_cttopic",&MqttControlTopic,"SolarThermostat/control");
     param.load("mqtt_sttopic",&MqttStatusTopic,"SolarThermostat/status");
+    param.load("mqtt_sttopic",&MqttInfoTopic,"SolarThermostat/info");
+    
     if(uri) 
     {
         mqtt.Init(username,password,uri,(const char*)ca_crt_start);
@@ -670,7 +673,7 @@ void app_main(void)
     }
 
  */    
-    ESP_LOGI(TAG,"Starting. Version=%u Tread=%u Tsendtemps=%u Ton=%u Toff=%u DT_TxMqtt=%u DT_ActPump=%u",VERSION,Tread,Tsendtemps,Ton,Toff,DT_TxMqtt,DT_ActPump);
+    publishStatus();
     /*
         Main cycle:
         periodically (Tpoll) read temperatures Tp and Tt and act the pump if necessary
@@ -725,9 +728,46 @@ void app_main(void)
 }
 
 void publishStatus() {
-    sprintf(msg,"%.1f",Tp);
-                    mqtt.Publish(MqttTpTopic,msg);
-    mqtt.Publish(MqttStatusTopic,"OFF");
+    char msg[199];
+    sprintf(msg,"Tp=%.1f",Tp);
+    mqtt.Publish(MqttInfoTopic,msg);
+    
+    sprintf(msg,"Tt=%.1f",Tt);
+    mqtt.Publish(MqttInfoTopic,msg);
+    
+    sprintf(msg,"Tf=%.1f",Tf);
+    mqtt.Publish(MqttInfoTopic,msg);
+    
+    sprintf(msg,"Version=%u",VERSION);
+    mqtt.Publish(MqttInfoTopic,msg);
+    
+    sprintf(msg,"Tread=%u",Tread);
+    mqtt.Publish(MqttInfoTopic,msg);
+    
+    sprintf(msg,"Tsendtemps=%u",Tsendtemps);
+    mqtt.Publish(MqttInfoTopic,msg);
+    
+    sprintf(msg,"Ton=%u",Ton);
+    mqtt.Publish(MqttInfoTopic,msg);
+    
+    sprintf(msg,"Toff=%u",Toff);
+    mqtt.Publish(MqttInfoTopic,msg);
+    
+    sprintf(msg,"DT_TxMqtt=%u",DT_TxMqtt);
+    mqtt.Publish(MqttInfoTopic,msg);
+    
+    sprintf(msg,"DT_ActPump=%u",DT_ActPump);
+    mqtt.Publish(MqttInfoTopic,msg); 
+    
+    sprintf(msg,"DT_TxMqtt=%u",DT_TxMqtt);
+    mqtt.Publish(MqttInfoTopic,msg); 
+
+    sprintf(msg,"MinTankTempToUseForWaterHeathing=%u",MinTankTempToUseForWaterHeathing);
+    mqtt.Publish(MqttInfoTopic,msg); 
+
+    sprintf(msg,"SecFpPumpOn=%u",SecFpPumpOn);
+    mqtt.Publish(MqttInfoTopic,msg); 
+
 }
 
 
