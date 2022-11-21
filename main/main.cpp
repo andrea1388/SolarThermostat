@@ -25,10 +25,18 @@
 #define TOTACheck 24
 #define WIFI_CONNECTED_BIT BIT0
 #define OTA_BIT      BIT1
+// ds18b20 sensors
 #define GPIO_SENS_PANEL GPIO_NUM_21
 #define GPIO_SENS_TANK GPIO_NUM_23
-#define GPIO_SENS_FP GPIO_NUM_23*************
+#define GPIO_FP_SENS GPIO_NUM_25
+// pump actuators
 #define GPIO_PUMP GPIO_NUM_18
+#define GPIO_FPPUMP GPIO_NUM_32
+#define GPIO_TANKPUMP GPIO_NUM_33
+// binary sensors
+#define GPIO_FLUX GPIO_NUM_34
+#define GPIO_BOILERPUMP GPIO_NUM_35
+
 #define GPIO_LED GPIO_NUM_4
 #define GPIO_BUTTON GPIO_NUM_2
 #define VERSION 10
@@ -51,6 +59,9 @@ uint8_t Toff=40; // Off time in seconds
 uint8_t SecFpPumpOn=30; // num of seconds fp pump must stays on
 uint8_t DT_TxMqtt=2; // if one of the two value of temperature red exceeds this delta, then values are transmitted to mqtt
 uint8_t DT_ActPump=2; // if Tpanel > Ttank + DT_ActPump, then pump is acted
+uint8_t MinTankTempToUseForWaterHeathing=30;
+bool BoilerPump; // true if boiler pump is on
+bool FluxSensor; // true if water flux is detected
 char *MqttTpTopic; //  mqtt_tptopic SolarThermostat/Tp
 char *MqttTtTopic; //  mqtt_tttopic SolarThermostat/Tt
 char *MqttControlTopic; // mqtt_cttopic SolarThermostat/control
@@ -452,18 +463,18 @@ void ProcessThermostatTank() {
 
     if(state== -1 || (state==1 && !conditionOn)) {
         state=0;
-        gpio_set_level(GPIO_FPPUMP,0);
+        gpio_set_level(GPIO_TANKPUMP,0);
     }
 
-    bool conditionOn=((Tt>MinTankTempToUseForWaterHeathing) && (FluxSensor==1 || SensPump==1)); // threshold temp fireplace
+    bool conditionOn=((Tt>MinTankTempToUseForWaterHeathing) && (FluxSensor==1 || BoilerPump==1)); // threshold temp fireplace
     if(state==0 && conditionOn) {
         state=1;
         tchange=now;
-        gpio_set_level(GPIO_FPPUMP,1);
+        gpio_set_level(GPIO_TANKPUMP,1);
     }
 }
 
-void SensorError(int sensorpin, int funcerr)
+/* void SensorError(int sensorpin, int funcerr)
 {
     if(!disableThermostat) {
         mqtt.Publish(MqttStatusTopic,"OFF");
@@ -473,7 +484,7 @@ void SensorError(int sensorpin, int funcerr)
         mqtt.Publish(MqttStatusTopic,msg);
         disableThermostat = true;
     }
-}
+} */
 
 bool ReadTemperatures() {
     float ttmp;
@@ -554,6 +565,10 @@ void app_main(void)
     gpio_set_direction(GPIO_TANK_PUMP, GPIO_MODE_OUTPUT);
     gpio_set_direction(GPIO_LED, GPIO_MODE_OUTPUT);
     gpio_set_direction(GPIO_BUTTON, GPIO_MODE_INPUT);
+    gpio_set_direction(GPIO_BOILERPUMP, GPIO_MODE_INPUT);
+    gpio_set_direction(GPIO_FLUX, GPIO_MODE_INPUT);
+    
+
     gpio_pullup_en(GPIO_BUTTON);
     gpio_pullup_en(GPIO_FLUXSENS);
     gpio_pullup_en(GPIO_HEATPUMP);
@@ -609,7 +624,7 @@ void app_main(void)
     param.load("DT_TxMqtt",&DT_TxMqtt);
     param.load("DT_ActPump",&DT_ActPump);
     param.load("SecFpPumpOn",&SecFpPumpOn);
-
+    param.load("MinTankTempToUseForWaterHeathing",&MinTankTempToUseForWaterHeathing);
 
     
     // configure ds18b20s
@@ -665,6 +680,8 @@ void app_main(void)
     while(true) {
         // get timer value in milliseconds from boot
         now=(esp_timer_get_time()/1000);
+        FluxSensor=gpio_get_level(GPIO_FLUX);
+        BoilerPump=gpio_get_level(GPIO_BOILERPUMP);
         // reschedule a otafw check after TOTACheck hours
         if(((now - tlastotacheck)/3600000) >= TOTACheck) {
             xEventGroupSetBits(event_group,OTA_BIT); // force a ota check every TOTACheck hours
@@ -707,6 +724,11 @@ void app_main(void)
     }
 }
 
+void publishStatus() {
+    sprintf(msg,"%.1f",Tp);
+                    mqtt.Publish(MqttTpTopic,msg);
+    mqtt.Publish(MqttStatusTopic,"OFF");
+}
 
 
 
