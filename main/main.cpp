@@ -33,6 +33,7 @@
 #define GPIO_PUMP GPIO_NUM_18
 #define GPIO_FPPUMP GPIO_NUM_32
 #define GPIO_TANKPUMP GPIO_NUM_33
+
 // binary sensors
 #define GPIO_FLUX GPIO_NUM_34
 #define GPIO_BOILERPUMP GPIO_NUM_35
@@ -51,6 +52,7 @@ extern "C" {
 // global objects
 EventGroupHandle_t event_group;
 float Tp=0,Tt=0,Tf=0; // store the last temp read
+uint8_t ThTFp=70; // threshold to activate fp pump
 int64_t now; // milliseconds from startup
 uint8_t Tread=5; // interval in seconds between temperature readings
 uint8_t Tsendtemps=1; // interval in minutes between temperature transmissions to mqtt broker
@@ -278,6 +280,12 @@ void onNewCommand(char *s)
         mqtt.Publish(MqttStatusTopic,"ON");
         return;
     }
+    if (strcmp(token,"status")==0)
+    {
+        publishStatus();
+        return;
+    }
+
     if (strcmp(token,"off")==0)
     {
         disableThermostat=true;
@@ -393,6 +401,37 @@ void onNewCommand(char *s)
             }
         }
     }
+
+    if (strcmp(token,"mintanktemptouseforwaterheathing")==0)
+    {
+        token = strtok(NULL, delim);
+        if(token==NULL) err=1;
+        if(err==0) {
+            int j=atoi(token);
+            if(j<1 || j>256) err=2;
+            if(err==0) {
+                MinTankTempToUseForWaterHeathing=j;
+                param.save("MinTankTempToUseForWaterHeathing",j);
+                return;
+            }
+        }
+    }
+    
+    if (strcmp(token,"thtfp")==0)
+    {
+        token = strtok(NULL, delim);
+        if(token==NULL) err=1;
+        if(err==0) {
+            int j=atoi(token);
+            if(j<1 || j>256) err=2;
+            if(err==0) {
+                ThTFp=j;
+                param.save("ThTFp",j);
+                return;
+            }
+        }
+    }
+
     if (strcmp(token,"otacheck")==0)
     {
         token = strtok(NULL, delim);
@@ -462,17 +501,15 @@ void ProcessThermostatFirePlace() {
 }
 void ProcessThermostatTank() {
     static int8_t state=-1;
-    static int64_t tchange=0;
+    bool conditionOn=((Tt>MinTankTempToUseForWaterHeathing) && (FluxSensor==1 || BoilerPump==1)); // threshold temp fireplace
 
     if(state== -1 || (state==1 && !conditionOn)) {
         state=0;
         gpio_set_level(GPIO_TANKPUMP,0);
     }
 
-    bool conditionOn=((Tt>MinTankTempToUseForWaterHeathing) && (FluxSensor==1 || BoilerPump==1)); // threshold temp fireplace
     if(state==0 && conditionOn) {
         state=1;
-        tchange=now;
         gpio_set_level(GPIO_TANKPUMP,1);
     }
 }
@@ -497,7 +534,7 @@ bool ReadTemperatures() {
     vTaskDelay(1);
 
 
-    if(ds18s20_measure_and_read(GPIO_SENS_TANK, DS18X20_ANY, &ttmp)
+    if(ds18s20_measure_and_read(GPIO_SENS_TANK, DS18X20_ANY, &ttmp))
         Tt=ttmp;
     vTaskDelay(1);
     
@@ -565,8 +602,8 @@ void app_main(void)
 
     // setup gpio
     gpio_set_direction(GPIO_PUMP, GPIO_MODE_OUTPUT);
-    gpio_set_direction(GPIO_FP_PUMP, GPIO_MODE_OUTPUT);
-    gpio_set_direction(GPIO_TANK_PUMP, GPIO_MODE_OUTPUT);
+    gpio_set_direction(GPIO_FPPUMP, GPIO_MODE_OUTPUT);
+    gpio_set_direction(GPIO_TANKPUMP, GPIO_MODE_OUTPUT);
     gpio_set_direction(GPIO_LED, GPIO_MODE_OUTPUT);
     gpio_set_direction(GPIO_BUTTON, GPIO_MODE_INPUT);
     gpio_set_direction(GPIO_BOILERPUMP, GPIO_MODE_INPUT);
@@ -628,6 +665,8 @@ void app_main(void)
     param.load("DT_ActPump",&DT_ActPump);
     param.load("SecFpPumpOn",&SecFpPumpOn);
     param.load("MinTankTempToUseForWaterHeathing",&MinTankTempToUseForWaterHeathing);
+    param.load("ThTFp",&ThTFp);
+
 
     
     // configure ds18b20s
@@ -766,6 +805,12 @@ void publishStatus() {
     mqtt.Publish(MqttInfoTopic,msg); 
 
     sprintf(msg,"SecFpPumpOn=%u",SecFpPumpOn);
+    mqtt.Publish(MqttInfoTopic,msg); 
+
+    sprintf(msg,"ThTFp=%u",ThTFp);
+    mqtt.Publish(MqttInfoTopic,msg); 
+
+    sprintf(msg,"ssid=%s",ThTFp);
     mqtt.Publish(MqttInfoTopic,msg); 
 
 }
