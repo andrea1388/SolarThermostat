@@ -18,7 +18,7 @@
 //#include <iostream>
 
 
-#include "wifi.h"
+#include <wifi.h>
 #include "mqtt.h"
 #include "nvsparameters.h"
 #define MAXCMDLEN 200
@@ -719,6 +719,17 @@ void app_main(void)
         periodically (Tsendtemps) send Tp and Tt to MQTT broker, but only if they differ more than a certain amount (deltaT)
         read characters from stdin and respond to commands issued
     */
+
+    Sensor temp;
+    temp.run(ds18b20.val);
+    Thermostat th;
+    BinarySensor button;
+    button.toggle=true;
+    Switch solarpump;
+    solarpump.ton=10;
+    solarpump.toff=10;
+    
+
     while(true) {
         // get timer value in milliseconds from boot
         now=(esp_timer_get_time()/1000);
@@ -731,6 +742,19 @@ void app_main(void)
         }
         // process commands from stdin
         ProcessStdin();   
+
+
+        button.run(gpio_get_level(GPIO_BUTTON)==1);
+
+
+
+        solarth.run(button.value || paneltemp.value > 10);
+        fireplaceth.run(fptemp.value>70);
+        pumpswitch.run((Tt>MinTankTempToUseForWaterHeathing) && (FluxSensor==1 || BoilerPump==1));
+
+
+
+
         if(gpio_get_level(GPIO_BUTTON)==1) forcePumpOn=true;
         // read temperatures every Tread 
         if((now - tlastread) >= Tread) {
