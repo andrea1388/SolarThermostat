@@ -5,8 +5,6 @@ certs/*.crt
 certs/.DS_Store
 .DS_Store
 sdkconfig.old
-components/Esp32WiFiComponent
-components/Esp32MqttComponent
-components/Esp32NvsComponent
+components/
 certs/SolarThermostat.bin
 .DS_Store

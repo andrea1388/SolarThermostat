@@ -15,6 +15,9 @@
 // https://esp-idf-lib.readthedocs.io/en/latest/groups/ds18x20.html
 #include <ds18x20.h>
 #include "otafw.h"
+#include "Sensor.h"
+#include "Switch.h"
+#include "esp32ds18b20component.h"
 //#include <iostream>
 
 
@@ -85,6 +88,8 @@ extern const uint8_t ca_crt_start[] asm("_binary_ca_crt_start");
 void onNewCommand(char *s);
 char* toLower(char* s);
 void publishStatus();
+
+enum bus{panelbus=0, tankbus=1, fireplacebus=2};
 
 void MqttEvent(Mqtt* mqtt, esp_mqtt_event_handle_t event)
 {
@@ -667,8 +672,20 @@ void app_main(void)
     param.load("MinTankTempToUseForWaterHeathing",&MinTankTempToUseForWaterHeathing);
     param.load("ThTFp",&ThTFp);
 
+    ds18b20 bus[3];
+    float temp;
+    c[0].start((gpio_num_t)21);
+    c[1].start((gpio_num_t)21);
+    c[2].start((gpio_num_t)21);
+    uint8_t num;
+    for(uint8_t i=0;i<3;i++) {
+        num=bus[i].search_all();
+        printf("found: %u sensor(s)\n",num);
+        if(num>0) {
+            c[i].setResolution(0,10);
+        }
 
-    
+    }
     // configure ds18b20s
 /*     size_t sensor_count;
     esp_err_t err;
@@ -720,12 +737,11 @@ void app_main(void)
         read characters from stdin and respond to commands issued
     */
 
-    Sensor temp;
-    temp.run(ds18b20.val);
-    Thermostat th;
+    Sensor Paneltemp,tankTemp,fireplaceTemp;
+    
     BinarySensor button;
     button.toggle=true;
-    Switch solarpump;
+    Switch solarPump,firePlacePump,boilerPump;
     solarpump.ton=10;
     solarpump.toff=10;
     
@@ -733,8 +749,17 @@ void app_main(void)
     while(true) {
         // get timer value in milliseconds from boot
         now=(esp_timer_get_time()/1000);
-        FluxSensor=gpio_get_level(GPIO_FLUX);
-        BoilerPump=gpio_get_level(GPIO_BOILERPUMP);
+        if((now - tlastread) >= Tread) {
+            for(uint8_t i=0;i<3;i++) 
+                num=bus[i].requestTemperatures();
+            Paneltemp.run(bus[PANELBUS].getTempC(0));
+            tankTemp.run(bus[TANKBUS].getTempC(0));
+            fireplaceTemp.run(bus[FPBUS].getTempC(0));
+
+        }
+        FluxSensor.run(gpio_get_level(GPIO_FLUX)==1);
+        BoilerPump.run(gpio_get_level(GPIO_BOILERPUMP)==1);
+        button.run(gpio_get_level(GPIO_BUTTON)==1);
         // reschedule a otafw check after TOTACheck hours
         if(((now - tlastotacheck)/3600000) >= TOTACheck) {
             xEventGroupSetBits(event_group,OTA_BIT); // force a ota check every TOTACheck hours
@@ -744,48 +769,12 @@ void app_main(void)
         ProcessStdin();   
 
 
-        button.run(gpio_get_level(GPIO_BUTTON)==1);
-
-
-
-        solarth.run(button.value || paneltemp.value > 10);
-        fireplaceth.run(fptemp.value>70);
+        solarPumpSwitch.run(button.value || paneltemp.value > 10);
+        firePlacePumpSwitch.run(fptemp.value>70);
         pumpswitch.run((Tt>MinTankTempToUseForWaterHeathing) && (FluxSensor==1 || BoilerPump==1));
 
 
 
-
-        if(gpio_get_level(GPIO_BUTTON)==1) forcePumpOn=true;
-        // read temperatures every Tread 
-        if((now - tlastread) >= Tread) {
-            tlastread=now;
-            char msg[10];
-            ReadTemperatures();
-        
-            // send to mqtt broker if it's the case
-            if(((now - tlastsenttemp)/60000) >= Tsendtemps) {
-                if( abs(Tp-Tplast) >= DT_TxMqtt || abs(Tt-Ttlast) >= DT_TxMqtt || abs(Tf-Tflast) >= DT_TxMqtt) {
-                    sprintf(msg,"%.1f",Tp);
-                    mqtt.Publish(MqttTpTopic,msg);
-                    sprintf(msg,"%.1f",Tt);
-                    mqtt.Publish(MqttTtTopic,msg);
-                    sprintf(msg,"%.1f",Tf);
-                    mqtt.Publish(MqttTfTopic,msg);
-                    Tplast=Tp;
-                    Ttlast=Tt;
-                    Tflast=Tf;
-                    tlastsenttemp=now;
-                }
-            }
-
-        }
-        // process thermostat every second
-        if( (now - tlastpt) >= 1000) {
-            ProcessThermostatSolar();
-            ProcessThermostatFirePlace();
-            ProcessThermostatTank();
-            tlastpt=now;
-        }
         vTaskDelay(1);
     }
 }
