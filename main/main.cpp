@@ -5,21 +5,19 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_system.h"
-#include "esp_spi_flash.h"
+
 #include "freertos/event_groups.h"
 #include "esp_timer.h"
 #define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
 #include "esp_log.h"
 #include "driver/gpio.h"
-// https://github.com/UncleRus/esp-idf-lib
-// https://esp-idf-lib.readthedocs.io/en/latest/groups/ds18x20.html
-#include <ds18x20.h>
+
 #include "otafw.h"
 //#include <iostream>
 
 
 #include "wifi.h"
-#include "mqtt.h"
+#include "Mqtt.h"
 #include "nvsparameters.h"
 #define MAXCMDLEN 200
 #define TOTACheck 24
@@ -61,8 +59,8 @@ Mqtt mqtt;
 WiFi wifi;
 NvsParameters param;
 Otafw otafw;
-ds18x20_addr_t panel_sens[1];
-ds18x20_addr_t tank_sens[1];
+int panel_sens[1];
+int tank_sens[1];
 extern const uint8_t ca_crt_start[] asm("_binary_ca_crt_start");
 
 void onNewCommand(char *s);
@@ -421,20 +419,7 @@ void SensorError(int sensorpin, int funcerr)
 
 bool ReadTemperatures() {
     esp_err_t ret;
-    float ttp,ttt;
-    ret = ds18x20_measure(GPIO_SENS_PANEL, panel_sens[0], true);
-    if(ret != ESP_OK) return false;
-    ret = ds18x20_read_temperature(GPIO_SENS_PANEL, panel_sens[0], &ttp);
-    if(ret != ESP_OK) return false;
-    vTaskDelay(1);
-    ret = ds18x20_measure(GPIO_SENS_TANK, tank_sens[0], true);
-    if(ret != ESP_OK) return false;
-    ret = ds18x20_read_temperature(GPIO_SENS_TANK, tank_sens[0], &ttt);
-    if(ret != ESP_OK) return false;
-    vTaskDelay(1);
-    Tp=ttp;
-    Tt=ttt;
-    ESP_LOGD(TAG, "Tp, Tt: %.1f,%.1f",Tp,Tt);
+
     return true;
 }
 
@@ -547,33 +532,7 @@ void app_main(void)
 
     
     // configure ds18b20s
-    size_t sensor_count;
-    esp_err_t err;
-    err=ds18x20_scan_devices(GPIO_SENS_PANEL, panel_sens,1, &sensor_count);
-    if(err != ESP_OK)
-    {
-        ESP_LOGE(TAG,"Panel sensor scan failed");
-        SensorError(GPIO_SENS_PANEL,2);
-    } else
-    {
-        if (sensor_count < 1) {
-            ESP_LOGE(TAG,"Panel sensor not detected");
-            SensorError(GPIO_SENS_PANEL,3);
-        }
-    }
-    
-    err=ds18x20_scan_devices(GPIO_SENS_TANK, tank_sens,1, &sensor_count);
-    if(err != ESP_OK)
-    {
-        ESP_LOGE(TAG,"Tank sensor scan failed");
-        SensorError(GPIO_SENS_TANK,2);
-    } else
-    {
-        if (sensor_count < 1) {
-            ESP_LOGE(TAG,"Tank sensor not detected");
-            SensorError(GPIO_SENS_TANK,3);
-        }
-    }
+
 
     ESP_LOGI(TAG,"Starting. Version=%u Tread=%u Tsendtemps=%u Ton=%u Toff=%u DT_TxMqtt=%u DT_ActPump=%u",VERSION,Tread,Tsendtemps,Ton,Toff,DT_TxMqtt,DT_ActPump);
     /*
