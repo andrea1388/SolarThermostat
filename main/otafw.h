@@ -8,6 +8,10 @@
 #include "esp_system.h"
 #include "esp_event.h"
 #include "esp_log.h"
+/**
+ * @brief Wrapper class for ota fw update
+ */
+
 class Otafw
 {
 public:
