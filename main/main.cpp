@@ -22,6 +22,7 @@
 #include "BinarySensor.h"
 #include "Sensor.h"
 #include "Switch.h"
+#include "esp32ds18b20component.h"
 
 #define MAXCMDLEN 200
 #define TOTACheck 24
@@ -43,7 +44,6 @@ extern "C" {
 
 // global objects
 EventGroupHandle_t event_group;
-float Tp=0,Tt=0; // store the last temp read
 int64_t now; // milliseconds from startup
 uint8_t Tread=1; // interval in seconds between temperature readings
 uint8_t Tsendtemps=1; // interval in minutes between temperature transmissions to mqtt broker
@@ -61,8 +61,9 @@ Mqtt mqtt;
 WiFi wifi;
 NvsParameters param;
 Otafw otafw;
-int panel_sens[1];
-int tank_sens[1];
+ds18b20 bus[2];
+
+    
 extern const uint8_t ca_crt_start[] asm("_binary_ca_crt_start");
 
 using namespace MqttSensors;
@@ -402,7 +403,11 @@ void SensorError(int sensorpin, int funcerr)
 }
 
 bool ReadTemperatures() {
-    esp_err_t ret;
+    for(uint8_t i=0;i<2;i++) {
+        bus[i].requestTemperatures();
+    }
+    panelTemp.run(bus[0].getTempC(0));
+    tankTemp.run(bus[1].getTempC(0));
 
     return true;
 }
@@ -546,10 +551,11 @@ void app_main(void)
         if(((now - tlastread)/1000) >= Tread) {
             tlastread=now;
             ReadTemperatures();
+
         }
 
         pushButton.run();
-        cond=(Tp > Tt + DT_ActPump) || pushButton.state;
+        cond=(panelTemp.value > tankTemp.value + DT_ActPump) || pushButton.state;
         solarPump.run(cond);
 
         statusLed.run(true); // flash
@@ -559,4 +565,14 @@ void app_main(void)
 }
 
 
-
+void searchTempSensor() {
+    bus[0].start((gpio_num_t)GPIO_SENS_PANEL);
+    bus[1].start((gpio_num_t)GPIO_SENS_TANK);
+    for(uint8_t i=0;i<2;i++) {
+        bus[i].search_all();
+        printf("bus %u, found: %u sensor(s)\n",i,bus[i].devices);
+        if(bus[i].devices>0) {
+            bus[i].setResolution(0,10);
+        }
+    }
+}
