@@ -46,7 +46,7 @@ void Otafw::Init(const char* url, const char* cert)
     http_config.event_handler=&Otafw::handler;
     http_config.skip_cert_common_name_check = true; 
     ota_config = {
-        .http_config = &http_config,
+        .http_config = &http_config
     };
 }
 

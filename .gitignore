@@ -7,3 +7,4 @@ certs/.DS_Store
 sdkconfig.old
 components/*
 certs/SolarThermostat.bin
+tests/a.out

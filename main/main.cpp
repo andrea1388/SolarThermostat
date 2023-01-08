@@ -37,6 +37,7 @@
 
 static const char *TAG = "main";
 
+void searchTempSensor();
 extern "C" {
     void app_main(void);
     extern void simple_ota_example_task(void *pvParameter);
@@ -46,7 +47,7 @@ extern "C" {
 EventGroupHandle_t event_group;
 int64_t now; // milliseconds from startup
 uint8_t Tread=1; // interval in seconds between temperature readings
-uint8_t Tsendtemps=1; // interval in minutes between temperature transmissions to mqtt broker
+uint8_t Tsendtemps=60; // interval in seconds between temperature transmissions to mqtt broker
 uint8_t Ton=40; // On time in seconds of the pump (usually is the time required to empty the panel) 
 uint8_t Toff=40; // Off time in seconds
 uint8_t DT_TxMqtt=2; // if one of the two value of temperature red exceeds this delta, then values are transmitted to mqtt
@@ -57,6 +58,13 @@ char *otaurl; // otaurl https://otaserver:8070/SolarThermostat.bin
 bool forcePumpOn=false; // flag to force pump on
 bool disableThermostat=false;
 
+using namespace MqttSensors;
+
+Sensor panelTemp;
+Sensor tankTemp;
+Switch solarPump(GPIO_PUMP);
+Switch statusLed(GPIO_LED);
+BinarySensor pushButton(GPIO_BUTTON);
 Mqtt mqtt;
 WiFi wifi;
 NvsParameters param;
@@ -65,12 +73,6 @@ ds18b20 bus[2];
 
     
 extern const uint8_t ca_crt_start[] asm("_binary_ca_crt_start");
-
-using namespace MqttSensors;
-
-Sensor panelTemp,tankTemp;
-Switch solarPump(GPIO_PUMP),statusLed(GPIO_LED);
-BinarySensor pushButton(GPIO_BUTTON);
 
 void onNewCommand(char *s);
 void MqttEvent(Mqtt* mqtt, esp_mqtt_event_handle_t event)
@@ -388,20 +390,6 @@ void onNewCommand(char *s)
     printf("wrong command\n");
 }
 
-
-
-void SensorError(int sensorpin, int funcerr)
-{
-    if(!disableThermostat) {
-        mqtt.Publish(MqttStatusTopic,"OFF");
-        char msg[50];
-        sprintf(msg,"Sens fault %u %u",sensorpin,funcerr);
-        ESP_LOGI(TAG, "%s", msg);
-        mqtt.Publish(MqttStatusTopic,msg);
-        disableThermostat = true;
-    }
-}
-
 bool ReadTemperatures() {
     for(uint8_t i=0;i<2;i++) {
         bus[i].requestTemperatures();
@@ -450,27 +438,32 @@ void Ota(void *o)
     }
 }
 
-
 void app_main(void)
 {
-    param.Init();
     int64_t tlastread=0;  // time of the last temperatures read
     int64_t tlastotacheck=0;
 
-    //srand((unsigned int)esp_timer_get_time());
+    param.Init();
+
     event_group = xEventGroupCreate();
 
     // setup gpio
-
     gpio_pullup_en(GPIO_BUTTON);
  
-    esp_log_level_set("*", ESP_LOG_INFO);
-    esp_log_level_set(TAG, ESP_LOG_DEBUG);
+    // setup log
+    //esp_log_level_set("*", ESP_LOG_INFO);
+    //esp_log_level_set(TAG, ESP_LOG_DEBUG);
 
+    // status led blink fast (no wifi)
     statusLed.tOn=200;
     statusLed.tOff=200;
+    solarPump.tOn=Ton;
+    solarPump.tOff=Toff;
+    panelTemp.minIntervalBetweenMqttUpdate=Tsendtemps;
+    tankTemp.minIntervalBetweenMqttUpdate=Tsendtemps;
     
-    solarPump.commandTopic="solarpump/set";
+
+    
 
 
     // configure wifi
@@ -482,6 +475,7 @@ void app_main(void)
     if(ssid) wifi.Start(ssid,password);
     free(ssid);
     free(password);
+
     //configure mqtt
     char *username=NULL;
     password=NULL;
@@ -493,6 +487,7 @@ void app_main(void)
     param.load("mqtt_tttopic",&tankTemp.mqttStateTopic,"SolarThermostat/Tt");
     param.load("mqtt_cttopic",&MqttControlTopic,"SolarThermostat/control");
     param.load("mqtt_sttopic",&MqttStatusTopic,"SolarThermostat/status");
+    solarPump.commandTopic="solarpump/set";
     if(uri) 
     {
         mqtt.Init(username,password,uri,(const char*)ca_crt_start);
@@ -505,6 +500,7 @@ void app_main(void)
     free(password);
     free(uri);
 
+    //setup ota
     param.load("otaurl",&otaurl);
     if(otaurl) 
     {
@@ -513,6 +509,7 @@ void app_main(void)
         ESP_LOGI(TAG,"Ota started");
     }
 
+    // load various params
     param.load("Tread",&Tread);
     param.load("Tsendtemps",&panelTemp.minIntervalBetweenMqttUpdate);
     param.load("Ton",&solarPump.tOn);
@@ -524,9 +521,13 @@ void app_main(void)
 
     
     // configure ds18b20s
-
+    searchTempSensor();
+    statusLed.mqttStateTopic="led";
+    solarPump.mqttStateTopic="pump";
+    pushButton.mqttStateTopic="button";
 
     ESP_LOGI(TAG,"Starting. Version=%u Tread=%u Tsendtemps=%u Ton=%u Toff=%u DT_TxMqtt=%u DT_ActPump=%u",VERSION,Tread,Tsendtemps,Ton,Toff,DT_TxMqtt,DT_ActPump);
+    
     /*
         Main cycle:
         periodically (Tpoll) read temperatures Tp and Tt and act the pump if necessary
@@ -556,11 +557,11 @@ void app_main(void)
 
         pushButton.run();
         cond=(panelTemp.value > tankTemp.value + DT_ActPump) || pushButton.state;
-        solarPump.run(cond);
+        //solarPump.run(cond);
 
         statusLed.run(true); // flash
 
-        //vTaskDelay(1);
+        vTaskDelay(1);
     }
 }
 
@@ -570,7 +571,7 @@ void searchTempSensor() {
     bus[1].start((gpio_num_t)GPIO_SENS_TANK);
     for(uint8_t i=0;i<2;i++) {
         bus[i].search_all();
-        printf("bus %u, found: %u sensor(s)\n",i,bus[i].devices);
+        ESP_LOGI(TAG,"bus %u, found: %u sensor(s)\n",i,bus[i].devices);
         if(bus[i].devices>0) {
             bus[i].setResolution(0,10);
         }
