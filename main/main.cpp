@@ -32,7 +32,7 @@
 #define GPIO_SENS_TANK GPIO_NUM_23
 #define GPIO_PUMP GPIO_NUM_18
 #define GPIO_LED GPIO_NUM_4
-#define GPIO_BUTTON GPIO_NUM_2
+#define GPIO_BUTTON GPIO_NUM_13
 #define VERSION 9
 
 static const char *TAG = "main";
@@ -136,7 +136,7 @@ void WiFiEvent(WiFi* wifi, uint8_t ev)
         case WIFI_DISCONNECT: // disconnected
             xEventGroupClearBits(event_group, WIFI_CONNECTED_BIT);
             wifi->Connect();
-            statusLed.tOff=200;
+            statusLed.tOff=4000;
             //mqtt.Stop();
             break;
         case WIFI_GOT_IP: // connected
@@ -448,17 +448,17 @@ void app_main(void)
     event_group = xEventGroupCreate();
 
     // setup gpio
-    gpio_pullup_en(GPIO_BUTTON);
+    ESP_ERROR_CHECK(gpio_pullup_en(GPIO_BUTTON));
  
     // setup log
     //esp_log_level_set("*", ESP_LOG_INFO);
-    //esp_log_level_set(TAG, ESP_LOG_DEBUG);
+    esp_log_level_set("ds18b20", ESP_LOG_INFO);
 
     // status led blink fast (no wifi)
-    statusLed.tOn=200;
-    statusLed.tOff=200;
-    solarPump.tOn=Ton;
-    solarPump.tOff=Toff;
+    statusLed.tOn=4000;
+    statusLed.tOff=4000;
+    solarPump.tOn=Ton*1000;
+    solarPump.tOff=Toff*1000;
     panelTemp.minIntervalBetweenMqttUpdate=Tsendtemps;
     tankTemp.minIntervalBetweenMqttUpdate=Tsendtemps;
     
@@ -510,9 +510,11 @@ void app_main(void)
     }
 
     // load various params
+    uint8_t t;
     param.load("Tread",&Tread);
     param.load("Tsendtemps",&panelTemp.minIntervalBetweenMqttUpdate);
-    param.load("Ton",&solarPump.tOn);
+    if(param.load("Ton",&t)) solarPump.tOn=t*1000;
+    if(param.load("Toff",&t)) solarPump.tOff=t*1000;
     param.load("Toff",&solarPump.tOff);
     param.load("DT_TxMqtt",&panelTemp.minVariationBetweenMqttUpdate);
     param.load("DT_ActPump",&DT_ActPump);
@@ -557,11 +559,11 @@ void app_main(void)
 
         pushButton.run();
         cond=(panelTemp.value > tankTemp.value + DT_ActPump) || pushButton.state;
-        //solarPump.run(cond);
+        solarPump.run(cond);
 
         statusLed.run(true); // flash
 
-        vTaskDelay(1);
+        vTaskDelay(100);
     }
 }
 
