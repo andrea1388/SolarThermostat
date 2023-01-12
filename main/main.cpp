@@ -64,7 +64,7 @@ Sensor panelTemp;
 Sensor tankTemp;
 Switch solarPump(GPIO_PUMP);
 Switch statusLed(GPIO_LED);
-BinarySensor pushButton(GPIO_BUTTON);
+BinarySensor pushButton(GPIO_BUTTON,GPIO_PULLDOWN_ONLY);
 Mqtt mqtt;
 WiFi wifi;
 NvsParameters param;
@@ -448,11 +448,11 @@ void app_main(void)
     event_group = xEventGroupCreate();
 
     // setup gpio
-    ESP_ERROR_CHECK(gpio_pullup_en(GPIO_BUTTON));
+    //ESP_ERROR_CHECK(gpio_pullup_en(GPIO_BUTTON));
  
     // setup log
     //esp_log_level_set("*", ESP_LOG_INFO);
-    esp_log_level_set("ds18b20", ESP_LOG_INFO);
+    esp_log_level_set("Switch", ESP_LOG_INFO);
 
     // status led blink fast (no wifi)
     statusLed.tOn=4000;
@@ -483,10 +483,10 @@ void app_main(void)
     param.load("mqtt_username",&username);
     param.load("mqtt_password",&password);
     param.load("mqtt_uri",&uri);
-    param.load("mqtt_tptopic",&panelTemp.mqttStateTopic,"SolarThermostat/Tp");
-    param.load("mqtt_tttopic",&tankTemp.mqttStateTopic,"SolarThermostat/Tt");
-    param.load("mqtt_cttopic",&MqttControlTopic,"SolarThermostat/control");
-    param.load("mqtt_sttopic",&MqttStatusTopic,"SolarThermostat/status");
+    param.load("mqtt_tptopic",&panelTemp.mqttStateTopic,"solarpaneltemp");
+    param.load("mqtt_tttopic",&tankTemp.mqttStateTopic,"tanktemp");
+    param.load("mqtt_cttopic",&MqttControlTopic,"control");
+    param.load("mqtt_sttopic",&MqttStatusTopic,"status");
     solarPump.commandTopic="solarpump/set";
     if(uri) 
     {
@@ -528,7 +528,7 @@ void app_main(void)
     solarPump.mqttStateTopic="pump";
     pushButton.mqttStateTopic="button";
 
-    ESP_LOGI(TAG,"Starting. Version=%u Tread=%u Tsendtemps=%u Ton=%u Toff=%u DT_TxMqtt=%u DT_ActPump=%u",VERSION,Tread,Tsendtemps,Ton,Toff,DT_TxMqtt,DT_ActPump);
+    ESP_LOGI(TAG,"Starting. Version=%u Tread=%u Tsendtemps=%u Ton=%lu Toff=%lu DT_TxMqtt=%u DT_ActPump=%u",VERSION,Tread,Tsendtemps,solarPump.tOn,solarPump.tOff,DT_TxMqtt,DT_ActPump);
     
     /*
         Main cycle:
@@ -537,6 +537,7 @@ void app_main(void)
         read characters from stdin and respond to commands issued
     */
     bool cond;
+    ReadTemperatures();
     while(true) {
         // get timer value in milliseconds from boot
         now=(esp_timer_get_time()/1000);
@@ -559,11 +560,13 @@ void app_main(void)
 
         pushButton.run();
         cond=(panelTemp.value > tankTemp.value + DT_ActPump) || pushButton.state;
+        ESP_LOGV(TAG,"cond=%d Tp= %.1f Tt=%.1f butt=%d",cond, panelTemp.value, tankTemp.value,pushButton.state);
+
         solarPump.run(cond);
 
-        statusLed.run(true); // flash
+        //statusLed.run(true); // flash
 
-        vTaskDelay(100);
+        vTaskDelay(10);
     }
 }
 
