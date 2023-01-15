@@ -73,6 +73,7 @@ ds18b20 bus[2];
 
     
 extern const uint8_t ca_crt_start[] asm("_binary_ca_crt_start");
+extern const uint8_t ca_crt_end[]   asm("_binary_ca_crt_end");
 
 void onNewCommand(char *s);
 void MqttEvent(Mqtt* mqtt, esp_mqtt_event_handle_t event)
@@ -136,15 +137,15 @@ void WiFiEvent(WiFi* wifi, uint8_t ev)
         case WIFI_DISCONNECT: // disconnected
             xEventGroupClearBits(event_group, WIFI_CONNECTED_BIT);
             wifi->Connect();
-            statusLed.tOff=4000;
+            //statusLed.tOff=5000;
             //mqtt.Stop();
             break;
         case WIFI_GOT_IP: // connected
             ESP_LOGI(TAG,"GotIP");
             //ESP_LOGI("Connected. ip=%s",wifi->ip);
             xEventGroupSetBits(event_group, WIFI_CONNECTED_BIT);
-            statusLed.tOff=1200;
-            mqtt.Start();
+            //statusLed.tOff=1000;
+            //mqtt.Start();
             break;
 
     }
@@ -393,9 +394,19 @@ void onNewCommand(char *s)
 bool ReadTemperatures() {
     for(uint8_t i=0;i<2;i++) {
         bus[i].requestTemperatures();
+        vTaskDelay(1);
     }
-    panelTemp.run(bus[0].getTempC(0));
-    tankTemp.run(bus[1].getTempC(0));
+    float f;
+    f=bus[0].getTempC(0);
+    if(f != DEVICE_DISCONNECTED_F) panelTemp.run(f);
+    else ESP_LOGW(TAG,"ReadTemperatures read error bus 0");
+    vTaskDelay(1);
+    f=bus[1].getTempC(0);
+    if(f != DEVICE_DISCONNECTED_F) tankTemp.run(f);
+    else ESP_LOGW(TAG,"ReadTemperatures read error bus 1");
+
+    ESP_LOGD(TAG,"ReadTemperatures Tp= %.1f Tt=%.1f", panelTemp.value, tankTemp.value);
+
 
     return true;
 }
@@ -452,7 +463,11 @@ void app_main(void)
  
     // setup log
     //esp_log_level_set("*", ESP_LOG_INFO);
-    esp_log_level_set("Switch", ESP_LOG_INFO);
+    esp_log_level_set("wifi", ESP_LOG_WARN);
+    esp_log_level_set("mqtt_client", ESP_LOG_ERROR);
+    esp_log_level_set("main", ESP_LOG_DEBUG);
+    esp_log_level_set("Switch", ESP_LOG_WARN);
+    
 
     // status led blink fast (no wifi)
     statusLed.tOn=4000;
@@ -461,6 +476,11 @@ void app_main(void)
     solarPump.tOff=Toff*1000;
     panelTemp.minIntervalBetweenMqttUpdate=Tsendtemps;
     tankTemp.minIntervalBetweenMqttUpdate=Tsendtemps;
+    statusLed.mqttStateTopic="led";
+    solarPump.mqttStateTopic="pump";
+    pushButton.mqttStateTopic="button";
+    tankTemp.mqttStateTopic="tt";
+    panelTemp.mqttStateTopic="pt";
     
 
     
@@ -475,7 +495,7 @@ void app_main(void)
     if(ssid) wifi.Start(ssid,password);
     free(ssid);
     free(password);
-
+/*
     //configure mqtt
     char *username=NULL;
     password=NULL;
@@ -513,22 +533,22 @@ void app_main(void)
     uint8_t t;
     param.load("Tread",&Tread);
     param.load("Tsendtemps",&panelTemp.minIntervalBetweenMqttUpdate);
-    if(param.load("Ton",&t)) solarPump.tOn=t*1000;
-    if(param.load("Toff",&t)) solarPump.tOff=t*1000;
-    param.load("Toff",&solarPump.tOff);
+    if(param.load("Ton",&t)==ESP_OK) solarPump.tOn=t*1000;
+    if(param.load("Toff",&t)==ESP_OK) solarPump.tOff=t*1000;
     param.load("DT_TxMqtt",&panelTemp.minVariationBetweenMqttUpdate);
     param.load("DT_ActPump",&DT_ActPump);
     tankTemp.minIntervalBetweenMqttUpdate=panelTemp.minIntervalBetweenMqttUpdate;
     tankTemp.minVariationBetweenMqttUpdate=panelTemp.minVariationBetweenMqttUpdate;
 
-    
+  */
+
     // configure ds18b20s
     searchTempSensor();
-    statusLed.mqttStateTopic="led";
-    solarPump.mqttStateTopic="pump";
-    pushButton.mqttStateTopic="button";
+    ReadTemperatures();
 
-    ESP_LOGI(TAG,"Starting. Version=%u Tread=%u Tsendtemps=%u Ton=%lu Toff=%lu DT_TxMqtt=%u DT_ActPump=%u",VERSION,Tread,Tsendtemps,solarPump.tOn,solarPump.tOff,DT_TxMqtt,DT_ActPump);
+
+
+    ESP_LOGI(TAG,"Starting. Version=%u Tread=%u Tsendtemps=%u Ton=%lu Toff=%lu DT_TxMqtt=%u DT_ActPump=%u",VERSION,Tread,Tsendtemps,solarPump.tOn/1000,solarPump.tOff/1000,DT_TxMqtt,DT_ActPump);
     
     /*
         Main cycle:
@@ -537,7 +557,6 @@ void app_main(void)
         read characters from stdin and respond to commands issued
     */
     bool cond;
-    ReadTemperatures();
     while(true) {
         // get timer value in milliseconds from boot
         now=(esp_timer_get_time()/1000);
@@ -558,15 +577,15 @@ void app_main(void)
 
         }
 
-        pushButton.run();
+        //pushButton.run();
         cond=(panelTemp.value > tankTemp.value + DT_ActPump) || pushButton.state;
-        ESP_LOGV(TAG,"cond=%d Tp= %.1f Tt=%.1f butt=%d",cond, panelTemp.value, tankTemp.value,pushButton.state);
+        ESP_LOGI(TAG,"cond=%d butt=%d",cond,pushButton.state);
 
-        solarPump.run(cond);
+        //solarPump.run(cond);
 
         //statusLed.run(true); // flash
 
-        vTaskDelay(10);
+        vTaskDelay(100);
     }
 }
 
@@ -574,6 +593,7 @@ void app_main(void)
 void searchTempSensor() {
     bus[0].start((gpio_num_t)GPIO_SENS_PANEL);
     bus[1].start((gpio_num_t)GPIO_SENS_TANK);
+    vTaskDelay(1);
     for(uint8_t i=0;i<2;i++) {
         bus[i].search_all();
         ESP_LOGI(TAG,"bus %u, found: %u sensor(s)\n",i,bus[i].devices);
