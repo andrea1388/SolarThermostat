@@ -83,6 +83,7 @@ void MqttEvent(Mqtt* mqtt, esp_mqtt_event_handle_t event)
         case MQTT_EVENT_CONNECTED:
             ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
             mqtt->Subscribe(MqttControlTopic);
+            mqtt->Subscribe(solarPump.commandTopic);
             if(disableThermostat)
                 mqtt->Publish(MqttStatusTopic,"OFF");
             else
@@ -458,33 +459,28 @@ void app_main(void)
 
     event_group = xEventGroupCreate();
 
-    // setup gpio
-    //ESP_ERROR_CHECK(gpio_pullup_en(GPIO_BUTTON));
- 
     // setup log
     //esp_log_level_set("*", ESP_LOG_INFO);
     esp_log_level_set("wifi", ESP_LOG_WARN);
     esp_log_level_set("mqtt_client", ESP_LOG_ERROR);
-    esp_log_level_set("main", ESP_LOG_DEBUG);
-    esp_log_level_set("Switch", ESP_LOG_WARN);
+    //esp_log_level_set("main", ESP_LOG_DEBUG);
+    esp_log_level_set("Switch", ESP_LOG_DEBUG);
     
 
     // status led blink fast (no wifi)
     statusLed.tOn=4000;
     statusLed.tOff=4000;
+    statusLed.mqttStateTopic="led";
+
+    //configure solarPump mqtt switch
     solarPump.tOn=Ton*1000;
     solarPump.tOff=Toff*1000;
-    panelTemp.minIntervalBetweenMqttUpdate=Tsendtemps;
-    tankTemp.minIntervalBetweenMqttUpdate=Tsendtemps;
-    statusLed.mqttStateTopic="led";
+    if(param.load("Ton",&solarPump.tOn)!=ESP_OK) solarPump.tOn=10000;
+    if(param.load("Toff",&solarPump.tOff)!=ESP_OK) solarPump.tOff=10000;
     solarPump.mqttStateTopic="pump";
+    solarPump.commandTopic="solarpump/set";
+
     pushButton.mqttStateTopic="button";
-    tankTemp.mqttStateTopic="tt";
-    panelTemp.mqttStateTopic="pt";
-    
-
-    
-
 
     // configure wifi
     char *ssid=NULL;
@@ -495,7 +491,7 @@ void app_main(void)
     if(ssid) wifi.Start(ssid,password);
     free(ssid);
     free(password);
-/*
+
     //configure mqtt
     char *username=NULL;
     password=NULL;
@@ -503,11 +499,6 @@ void app_main(void)
     param.load("mqtt_username",&username);
     param.load("mqtt_password",&password);
     param.load("mqtt_uri",&uri);
-    param.load("mqtt_tptopic",&panelTemp.mqttStateTopic,"solarpaneltemp");
-    param.load("mqtt_tttopic",&tankTemp.mqttStateTopic,"tanktemp");
-    param.load("mqtt_cttopic",&MqttControlTopic,"control");
-    param.load("mqtt_sttopic",&MqttStatusTopic,"status");
-    solarPump.commandTopic="solarpump/set";
     if(uri) 
     {
         mqtt.Init(username,password,uri,(const char*)ca_crt_start);
@@ -515,11 +506,26 @@ void app_main(void)
         ESP_LOGI(TAG,"Mqtt started");
         panelTemp.mqttClient=&mqtt;
         tankTemp.mqttClient=&mqtt;
+  
     }
     free(username);
     free(password);
     free(uri);
 
+    // configure panelTemp mqtt sensor
+    panelTemp.minIntervalBetweenMqttUpdate=Tsendtemps;
+    param.load("mqtt_tptopic",&panelTemp.mqttStateTopic,"solarpaneltemp");
+    param.load("Tsendtemps",&panelTemp.minIntervalBetweenMqttUpdate);
+    param.load("DT_TxMqtt",&panelTemp.minVariationBetweenMqttUpdate);
+
+    // configure tankTemp mqtt sensor
+    param.load("mqtt_tttopic",&tankTemp.mqttStateTopic,"tanktemp");
+    tankTemp.minIntervalBetweenMqttUpdate=panelTemp.minIntervalBetweenMqttUpdate;
+    tankTemp.minVariationBetweenMqttUpdate=panelTemp.minVariationBetweenMqttUpdate;
+
+    param.load("mqtt_cttopic",&MqttControlTopic,"control");
+    param.load("mqtt_sttopic",&MqttStatusTopic,"status");
+    
     //setup ota
     param.load("otaurl",&otaurl);
     if(otaurl) 
@@ -530,23 +536,13 @@ void app_main(void)
     }
 
     // load various params
-    uint8_t t;
-    param.load("Tread",&Tread);
-    param.load("Tsendtemps",&panelTemp.minIntervalBetweenMqttUpdate);
-    if(param.load("Ton",&t)==ESP_OK) solarPump.tOn=t*1000;
-    if(param.load("Toff",&t)==ESP_OK) solarPump.tOff=t*1000;
-    param.load("DT_TxMqtt",&panelTemp.minVariationBetweenMqttUpdate);
-    param.load("DT_ActPump",&DT_ActPump);
-    tankTemp.minIntervalBetweenMqttUpdate=panelTemp.minIntervalBetweenMqttUpdate;
-    tankTemp.minVariationBetweenMqttUpdate=panelTemp.minVariationBetweenMqttUpdate;
 
-  */
+    param.load("Tread",&Tread);
+    param.load("DT_ActPump",&DT_ActPump);
 
     // configure ds18b20s
     searchTempSensor();
     ReadTemperatures();
-
-
 
     ESP_LOGI(TAG,"Starting. Version=%u Tread=%u Tsendtemps=%u Ton=%lu Toff=%lu DT_TxMqtt=%u DT_ActPump=%u",VERSION,Tread,Tsendtemps,solarPump.tOn/1000,solarPump.tOff/1000,DT_TxMqtt,DT_ActPump);
     
@@ -577,13 +573,13 @@ void app_main(void)
 
         }
 
-        //pushButton.run();
+        pushButton.run();
         cond=(panelTemp.value > tankTemp.value + DT_ActPump) || pushButton.state;
         ESP_LOGI(TAG,"cond=%d butt=%d",cond,pushButton.state);
 
-        //solarPump.run(cond);
+        solarPump.run(cond);
 
-        //statusLed.run(true); // flash
+        statusLed.run(true); // flash
 
         vTaskDelay(100);
     }
