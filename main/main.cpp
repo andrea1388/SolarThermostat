@@ -452,6 +452,11 @@ void Ota(void *o)
 
 void app_main(void)
 {
+    setGlobalVars();
+    loadParams();
+    startThermostatTask();
+    initWifi();
+    startOtaTask();
     int64_t tlastread=0;  // time of the last temperatures read
     int64_t tlastotacheck=0;
 
@@ -541,8 +546,7 @@ void app_main(void)
     param.load("DT_ActPump",&DT_ActPump);
 
     // configure ds18b20s
-    searchTempSensor();
-    ReadTemperatures();
+
 
     ESP_LOGI(TAG,"Starting. Version=%u Tread=%u Tsendtemps=%u Ton=%lu Toff=%lu DT_TxMqtt=%u DT_ActPump=%u",VERSION,Tread,Tsendtemps,solarPump.tOn/1000,solarPump.tOff/1000,DT_TxMqtt,DT_ActPump);
     
@@ -552,37 +556,6 @@ void app_main(void)
         periodically (Tsendtemps) send Tp and Tt to MQTT broker, but only if they differ more than a certain amount (deltaT)
         read characters from stdin and respond to commands issued
     */
-    bool cond;
-    while(true) {
-        // get timer value in milliseconds from boot
-        now=(esp_timer_get_time()/1000);
-
-        // reschedule a otafw check after TOTACheck hours
-        if(((now - tlastotacheck)/3600000) >= TOTACheck) {
-            xEventGroupSetBits(event_group,OTA_BIT); // force a ota check every TOTACheck hours
-            tlastotacheck=now;
-        }
-
-        // process commands from stdin
-        ProcessStdin();   
-
-        // read temperatures and process 
-        if(((now - tlastread)/1000) >= Tread) {
-            tlastread=now;
-            ReadTemperatures();
-
-        }
-
-        pushButton.run();
-        cond=(panelTemp.value > tankTemp.value + DT_ActPump) || pushButton.state;
-        ESP_LOGI(TAG,"cond=%d butt=%d",cond,pushButton.state);
-
-        solarPump.run(cond);
-
-        statusLed.run(true); // flash
-
-        vTaskDelay(100);
-    }
 }
 
 
@@ -597,4 +570,46 @@ void searchTempSensor() {
             bus[i].setResolution(0,10);
         }
     }
+}
+
+void ThermostatTask()
+{
+    searchTempSensor();
+    bool cond;
+    while(true) {
+        // get timer value in milliseconds from boot
+        now=(esp_timer_get_time()/1000);
+        if(((now - tlastread)/1000) >= Tread) {
+            tlastread=now;
+            ReadTemperatures();
+
+        }
+
+        // reschedule a otafw check after TOTACheck hours
+        if(((now - tlastotacheck)/3600000) >= TOTACheck) {
+            xEventGroupSetBits(event_group,OTA_BIT); // force a ota check every TOTACheck hours
+            tlastotacheck=now;
+        }
+
+        // process commands from stdin
+        ProcessStdin();   
+
+        // read temperatures and process 
+
+        pushButton.run();
+        cond=(panelTemp.value > tankTemp.value + DT_ActPump) || pushButton.state;
+        ESP_LOGI(TAG,"cond=%d butt=%d",cond,pushButton.state);
+
+        solarPump.run(cond);
+
+        statusLed.run(true); // flash
+
+        vTaskDelay(100);
+    }
+
+}
+
+uint32_t millis() 
+{
+    return (esp_timer_get_time() >> 10) && 0xffffffff;
 }
