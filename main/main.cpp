@@ -613,3 +613,22 @@ uint32_t millis()
 {
     return (esp_timer_get_time() >> 10) && 0xffffffff;
 }
+
+void ttask() 
+{
+    if(timerReadTemp.elapsed) {
+        ReadAndSendTemperatures(sens);
+    }
+    ProcessThermostat(sens);
+}
+
+void ReadAndSendTemperatures(sens)
+{
+    ReaTemperatures(sens);
+    SendTemperatures(sens);
+}
+
+void ProcessThermostat() 
+{
+    
+}
